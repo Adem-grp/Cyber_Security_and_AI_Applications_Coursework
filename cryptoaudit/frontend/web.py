@@ -74,6 +74,13 @@ BASE_TEMPLATE = """
     .flash-error { border: 1px solid #fca5a5; background: #fef2f2; color: #991b1b; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
     .flash-success { border: 1px solid #86efac; background: #f0fdf4; color: #166534; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
     .flash-warn { border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+    .badge { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 0.82rem; font-weight: 700; }
+    .badge-pass { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .badge-warn { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .badge-fail { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; }
     details { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 10px; }
     .dropzone { border: 2px dashed #93c5fd; border-radius: 8px; padding: 16px; text-align: center; background: #eff6ff; margin-top: 8px; }
     .dropzone.dragover { background: #dbeafe; border-color: #2563eb; }
@@ -208,14 +215,13 @@ ENCRYPT_BODY = """
       <input type="file" id="inputFile" name="input_file">
       <div class="dropzone" id="dropzone">Drag and drop a file here (including videos), or use file chooser.</div>
 
-      <label>Algorithms</label>
-      {% for alg in algorithms %}
-        <label style="display:block; font-weight:normal;">
-          <input type="checkbox" name="algorithms" value="{{ alg.name }}" {% if alg.default_checked %}checked{% endif %}>
-          {{ alg.label }}
-          <span class="muted">({{ alg.status }})</span>
-        </label>
-      {% endfor %}
+      <label>Algorithm</label>
+      <select name="algorithm" id="algorithmSelect" required>
+        {% for alg in algorithms %}
+          <option value="{{ alg.name }}" {% if alg.default_checked %}selected{% endif %}>{{ alg.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted">One algorithm is applied per run. Use separate runs if you want to compare outputs.</p>
 
       <label>Password</label>
       <input type="password" name="password" autocomplete="new-password" required>
@@ -254,7 +260,7 @@ ENCRYPT_BODY = """
 <div class="modal-backdrop" id="legacyModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="legacyModalTitle">
   <div class="modal">
     <h3 id="legacyModalTitle">Compatibility Warning</h3>
-    <p>You selected 3DES-OFB. This algorithm is kept for compatibility and audit comparison.</p>
+    <p>3DES-OFB is classified as a legacy compatibility cipher. NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023. FIPS 140-3 transition guidance recommends migration to AES-GCM or ChaCha20-Poly1305.</p>
     <p class="muted">You can continue anyway or retry to adjust your algorithm selection.</p>
     <div class="actions">
       <button type="button" id="legacyContinueBtn">Continue Anyway</button>
@@ -275,8 +281,8 @@ ENCRYPT_BODY = """
   let bypassLegacyCheck = false;
 
   function hasLegacySelected() {
-    const selected = Array.from(document.querySelectorAll('input[name="algorithms"]:checked')).map(x => x.value);
-    return selected.includes("3des-ofb");
+    const selected = document.getElementById("algorithmSelect");
+    return selected && selected.value === "3des-ofb";
   }
 
   encryptForm.addEventListener("submit", function (event) {
@@ -437,22 +443,49 @@ DECRYPT_BODY = """
 
 AUDIT_BODY = """
 <h2>Audit Information</h2>
-<p class="muted">Audit analysis is executed during encryption runs and included in generated reports.</p>
-
-<h3>What gets audited</h3>
-<ul>
-  <li>Algorithm status and standards references.</li>
-  <li>Mode safety checks and policy warnings.</li>
-  <li>Avalanche effect behavior per algorithm.</li>
-  <li>Benchmark timing and throughput metrics.</li>
-</ul>
-
-<h3>How to use this page</h3>
-<ul>
-  <li>Run an encryption from the Encrypt page.</li>
-  <li>Open the generated HTML or JSON report from your output directory.</li>
-  <li>Review PASS/WARN/FAIL findings and recommendations for each algorithm.</li>
-</ul>
+{% if last_audit %}
+  <p class="muted"><strong>Run ID:</strong> <code>{{ last_audit.run_id }}</code> | <strong>Timestamp:</strong> <code>{{ last_audit.timestamp }}</code></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Algorithm</th>
+        <th>Verdict</th>
+        <th>Findings</th>
+        <th>Recommendation</th>
+        <th>Standard</th>
+        <th>Avalanche (%)</th>
+        <th>Avg Encrypt (ms)</th>
+        <th>Throughput (MB/s)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in last_audit.algorithms %}
+      <tr>
+        <td><code>{{ row.name }}</code></td>
+        <td>
+          <span class="badge {% if row.verdict == 'PASS' %}badge-pass{% elif row.verdict == 'WARN' %}badge-warn{% else %}badge-fail{% endif %}">{{ row.verdict }}</span>
+        </td>
+        <td>
+          {% if row.findings %}
+            <ul>
+              {% for item in row.findings %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <span class="muted">None</span>
+          {% endif %}
+        </td>
+        <td>{{ row.recommendation }}</td>
+        <td>{{ row.standard_reference }}</td>
+        <td>{{ row.difference_percent }}</td>
+        <td>{{ row.avg_encrypt_ms }}</td>
+        <td>{{ row.throughput_mb_s }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">No audit data yet. Run an encryption first.</p>
+{% endif %}
 """
 
 
@@ -461,17 +494,38 @@ RESULT_BODY = """
 {% if warning %}
   <div class="flash-warn">{{ warning }}</div>
 {% endif %}
-<p><strong>Status:</strong> Completed successfully.</p>
+<div class="flash-success">{{ success_message }}</div>
+<p><strong>Operation:</strong> {{ operation }}</p>
 <p><strong>Output Directory:</strong> <code>{{ output_dir }}</code></p>
-{% if report_json %}<p><strong>JSON Report:</strong> <code>{{ report_json }}</code></p>{% endif %}
-{% if report_html %}<p><strong>HTML Report:</strong> <code>{{ report_html }}</code></p>{% endif %}
-{% if artifacts %}
-  <p><strong>Artifacts:</strong></p>
+{% if audit_summary %}
+  <p><strong>Audit Summary:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Algorithm</th>
+        <th>Verdict</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in audit_summary %}
+      <tr>
+        <td><code>{{ row.name }}</code></td>
+        <td>
+          <span class="badge {% if row.verdict == 'PASS' %}badge-pass{% elif row.verdict == 'WARN' %}badge-warn{% else %}badge-fail{% endif %}">{{ row.verdict }}</span>
+        </td>
+        <td>{{ row.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% if output_files %}
+  <p><strong>Generated Output Files:</strong></p>
   <ul>
-  {% for item in artifacts %}<li><code>{{ item }}</code></li>{% endfor %}
+  {% for item in output_files %}<li><code>{{ item }}</code></li>{% endfor %}
   </ul>
 {% endif %}
-{% if decrypted_file %}<p><strong>Recovered File:</strong> <code>{{ decrypted_file }}</code></p>{% endif %}
 <div class="actions">
   <a href="{{ back_href }}"><button>Back</button></a>
 </div>
@@ -507,13 +561,13 @@ def _render_app_page(*, body_template: str, active_page: str, **context: Any) ->
 
 def _ui_algorithms() -> list[dict[str, Any]]:
     return [
-        {"name": ALGO_AES_GCM, "label": "AES-256-GCM", "status": "recommended", "default_checked": True},
-        {"name": ALGO_AES_192_GCM, "label": "AES-192-GCM", "status": "recommended", "default_checked": False},
-        {"name": ALGO_AES_128_GCM, "label": "AES-128-GCM", "status": "recommended", "default_checked": False},
-        {"name": ALGO_CHACHA, "label": "ChaCha20-Poly1305", "status": "recommended", "default_checked": True},
-        {"name": ALGO_3DES, "label": "3DES-OFB", "status": "compatibility", "default_checked": False},
-        {"name": ALGO_DES_CBC, "label": "DES-CBC", "status": "deprecated-blocked", "default_checked": False},
-        {"name": ALGO_RC4, "label": "RC4", "status": "deprecated-blocked", "default_checked": False},
+        {"name": ALGO_AES_GCM, "label": "AES-256-GCM", "default_checked": True},
+        {"name": ALGO_AES_192_GCM, "label": "AES-192-GCM", "default_checked": False},
+        {"name": ALGO_AES_128_GCM, "label": "AES-128-GCM", "default_checked": False},
+        {"name": ALGO_CHACHA, "label": "ChaCha20-Poly1305", "default_checked": False},
+        {"name": ALGO_3DES, "label": "3DES-OFB", "default_checked": False},
+        {"name": ALGO_DES_CBC, "label": "DES-CBC", "default_checked": False},
+        {"name": ALGO_RC4, "label": "RC4", "default_checked": False},
     ]
 
 
@@ -532,7 +586,7 @@ def _ui_decrypt_algorithms() -> list[dict[str, str]]:
         {"name": ALGO_AES_192_GCM, "label": "AES-192-GCM"},
         {"name": ALGO_AES_128_GCM, "label": "AES-128-GCM"},
         {"name": ALGO_CHACHA, "label": "ChaCha20-Poly1305"},
-        {"name": ALGO_3DES, "label": "3DES-OFB (compatibility)"},
+        {"name": ALGO_3DES, "label": "3DES-OFB"},
     ]
 
 
@@ -634,6 +688,11 @@ def _login_required(handler: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def _selected_algorithms() -> list[str]:
+    selected_single = (request.form.get("algorithm", "") or "").strip()
+    if selected_single:
+        return [selected_single] if selected_single in ALGORITHM_SPECS else []
+
+    # Backward-compatible fallback for stale form payloads using multi-select.
     selected = request.form.getlist("algorithms")
     return [alg for alg in selected if alg in ALGORITHM_SPECS]
 
@@ -643,6 +702,49 @@ def _coerce_optional_int(value: str, default: int) -> int:
     if not text:
         return default
     return int(text)
+
+
+def _extract_last_audit_payload(report: dict[str, Any], fallback_run_id: str) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for entry in report.get("algorithms", []):
+        audit = entry.get("audit", {})
+        avalanche = entry.get("avalanche", {})
+        benchmark = entry.get("benchmark", {})
+        findings = audit.get("findings") if isinstance(audit.get("findings"), list) else []
+        rows.append(
+            {
+                "name": str(entry.get("name", "")),
+                "verdict": str(audit.get("verdict", "WARN")).upper(),
+                "findings": [str(item) for item in findings],
+                "recommendation": str(audit.get("recommendation", "")),
+                "standard_reference": str(audit.get("standard_reference", "")),
+                "difference_percent": avalanche.get("difference_percent"),
+                "avg_encrypt_ms": benchmark.get("avg_encrypt_ms"),
+                "throughput_mb_s": benchmark.get("throughput_mb_s"),
+            }
+        )
+
+    return {
+        "run_id": str(report.get("run_id", fallback_run_id)),
+        "timestamp": str(report.get("timestamp_utc", "")),
+        "algorithms": rows,
+    }
+
+
+def _to_audit_summary(last_audit: dict[str, Any]) -> list[dict[str, str]]:
+    summary: list[dict[str, str]] = []
+    for row in last_audit.get("algorithms", []):
+        findings = row.get("findings") if isinstance(row.get("findings"), list) else []
+        first_finding = str(findings[0]).strip() if findings else ""
+        recommendation = str(row.get("recommendation", "")).strip()
+        summary.append(
+            {
+                "name": str(row.get("name", "")),
+                "verdict": str(row.get("verdict", "WARN")).upper(),
+                "summary": first_finding or recommendation or "No additional notes.",
+            }
+        )
+    return summary
 
 
 def _config_from_upload(default: AppConfig) -> AppConfig:
@@ -855,6 +957,7 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
         return _render_app_page(
             body_template=AUDIT_BODY,
             active_page="audit",
+            last_audit=session.get("last_audit"),
             username=session.get("user"),
             auth_enabled=bool(app.config.get("AUTH_ENABLED")),
         )
@@ -876,6 +979,9 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             selected_algorithms = _selected_algorithms()
             if selected_algorithms:
                 config.algorithms = selected_algorithms
+
+            if len(config.algorithms) != 1:
+                raise ValueError("Select exactly one algorithm for each encryption run.")
 
             config.pbkdf2_iterations = _coerce_optional_int(request.form.get("pbkdf2_iterations", ""), config.pbkdf2_iterations)
             config.benchmark_iterations = _coerce_optional_int(request.form.get("benchmark_iterations", ""), config.benchmark_iterations)
@@ -904,15 +1010,27 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
 
             result = execute_pipeline(config=config, input_file=input_file, input_text=input_text, password=password_buf)
 
+            report_payload = json.loads(Path(result.report_json_path).read_text(encoding="utf-8"))
+            last_audit = _extract_last_audit_payload(report_payload, result.run_id)
+            session["last_audit"] = last_audit
+            audit_summary = _to_audit_summary(last_audit)
+
+            output_files: list[str] = []
+            if result.report_json_path:
+                output_files.append(result.report_json_path)
+            if result.report_html_path:
+                output_files.append(result.report_html_path)
+            output_files.extend(result.encrypted_artifact_paths)
+
             return _render_page(
                 RESULT_BODY,
                 title="Encryption Complete",
+                success_message="Encryption successful. CryptoAudit artifacts and reports were saved locally.",
+                operation="Encryption + Audit",
                 warning=None,
                 output_dir=result.output_dir,
-                report_json=result.report_json_path,
-                report_html=result.report_html_path,
-                artifacts=result.encrypted_artifact_paths,
-                decrypted_file=None,
+                audit_summary=audit_summary,
+                output_files=output_files,
                 show_success_popup=True,
                 back_href=url_for("encrypt_page"),
             )
@@ -974,15 +1092,27 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                     allow_overwrite=False,
                 )
 
+            output_files = [result.decrypted_file_path]
+            if result.artifact_path:
+                output_files.append(result.artifact_path)
+
+            warning_message = result.warning
+            if warning_message:
+                warning_message = (
+                    "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023. "
+                    + warning_message
+                )
+                flash(warning_message, "warn")
+
             return _render_page(
                 RESULT_BODY,
                 title="Decryption Complete",
-                warning=result.warning,
+                success_message="Decryption successful. Recovered data was saved locally.",
+                operation="Decryption",
+                warning=warning_message,
                 output_dir=result.output_dir,
-                report_json=None,
-                report_html=None,
-                artifacts=None,
-                decrypted_file=result.decrypted_file_path,
+                audit_summary=None,
+                output_files=output_files,
                 show_success_popup=False,
                 back_href=url_for("decrypt_page"),
             )
