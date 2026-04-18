@@ -1,0 +1,138 @@
+# CryptoAudit
+
+CryptoAudit is a local-only cryptographic benchmarking and audit tool with CLI, desktop, and secure web interfaces.
+
+## Security and Scope
+
+- Runs fully local (loopback web UI only, no external API/network calls)
+- Accepts file input or raw text input
+- Handles any binary file type (including videos) as raw bytes
+- Produces encrypted artifacts + JSON and HTML reports
+- Never writes plaintext, passwords, or keys to disk
+- Uses `PBKDF2-HMAC-SHA256` with random 16-byte salt
+
+## Implemented Algorithms
+
+- `aes-256-gcm` (recommended)
+- `aes-192-gcm` (recommended)
+- `aes-128-gcm` (recommended)
+- `chacha20-poly1305` (recommended)
+- `3des-ofb` (compatibility option; warning shown in UI before run)
+
+## Install
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+## Secure Local Web Interface (Recommended)
+
+Run:
+
+```powershell
+python main.py
+```
+
+By default, `main.py` launches the web interface at `http://127.0.0.1:8765`.
+
+First run flow:
+
+- Create the first local account on `/setup`
+- Sign in on `/login`
+- Use `/app` for encrypt + decrypt operations
+
+Security behavior in web mode:
+
+- Login credentials are hashed in a local SQLite DB (`.cryptoaudit_web/users.db`)
+- Session cookies are HTTPOnly + SameSite=Strict
+- CSRF token protection on state-changing forms
+- Passwords are submitted only via POST form body (never query string)
+- Uploaded files are processed in local temporary storage and removed after processing
+- No plaintext/password/key material is written to output reports
+
+Notes:
+
+- This app binds to localhost only (`127.0.0.1`) and is intended for local use.
+- Quota/tokenization/payment hooks are intentionally not implemented yet.
+
+## Desktop Interface (Optional)
+
+- You can still run the Tkinter desktop UI directly:
+
+```powershell
+python ui_tkinter.py
+```
+
+## CLI Interface (Optional)
+
+Use CLI commands below for automation/integration.
+
+## Quick Run (raw text)
+
+```powershell
+$env:CRYPTOAUDIT_PASSWORD="StrongPass123!"
+python main.py --text "hello from cryptoaudit" --password-env CRYPTOAUDIT_PASSWORD --output-dir outputs
+```
+
+## Quick Run (file input)
+
+```powershell
+$env:CRYPTOAUDIT_PASSWORD="StrongPass123!"
+python main.py --file "C:\path\to\input.txt" --password-env CRYPTOAUDIT_PASSWORD --output-dir outputs
+```
+
+## Quick Decrypt (artifact)
+
+```powershell
+$env:CRYPTOAUDIT_PASSWORD="StrongPass123!"
+python main.py --mode decrypt --artifact "outputs\20260326T000000Z_aes-256-gcm.enc.json" --password-env CRYPTOAUDIT_PASSWORD --output-dir outputs
+```
+
+## Config File
+
+You can pass a JSON config with `--config`.
+
+Example (`sample_config.json`):
+
+```json
+{
+  "algorithms": ["aes-256-gcm", "chacha20-poly1305", "3des-ofb"],
+  "pbkdf2_iterations": 600000,
+  "benchmark_iterations": 10,
+  "benchmark_payload_size": 1048576,
+  "max_file_size_bytes": 104857600,
+  "output_dir": "outputs",
+  "mode_overrides": {
+    "aes-256-gcm": "GCM"
+  },
+  "detect_reused_iv_in_config": false
+}
+```
+
+Run with config:
+
+```powershell
+$env:CRYPTOAUDIT_PASSWORD="StrongPass123!"
+python main.py --text "demo" --config sample_config.json --password-env CRYPTOAUDIT_PASSWORD
+```
+
+## Outputs
+
+For each run, the output directory contains:
+
+- One encrypted artifact per algorithm: `*_algorithm.enc.json`
+- One machine-readable report: `*_report.json`
+- One human-readable report: `*_report.html`
+
+## Smoke Test Harness
+
+```powershell
+python smoke_test.py
+```
+
+## Unit + Integration Tests
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
