@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -10,27 +11,29 @@ def main() -> int:
     env = os.environ.copy()
     env["CRYPTOAUDIT_PASSWORD"] = "TestPass123!"
 
-    command = [
-        sys.executable,
-        "main.py",
-        "--text",
-        "smoke test payload",
-        "--config",
-        "sample_config.json",
-        "--password-env",
-        "CRYPTOAUDIT_PASSWORD",
-        "--output-dir",
-        "outputs_smoke",
-    ]
+    with tempfile.TemporaryDirectory(prefix="cryptoaudit_smoke_") as tmp:
+        output_dir = Path(tmp) / "outputs"
+        command = [
+            sys.executable,
+            "main.py",
+            "--text",
+            "smoke test payload",
+            "--config",
+            "sample_config.json",
+            "--password-env",
+            "CRYPTOAUDIT_PASSWORD",
+            "--output-dir",
+            str(output_dir),
+        ]
 
-    completed = subprocess.run(command, cwd=project_root, env=env, check=False)
-    if completed.returncode != 0:
-        print("Smoke test failed")
-        return completed.returncode
+        completed = subprocess.run(command, cwd=project_root, env=env, check=False)
+        if completed.returncode != 0:
+            print("Smoke test failed")
+            return completed.returncode
 
-    outputs = sorted((project_root / "outputs_smoke").glob("*"))
-    print(f"Smoke test passed. Generated {len(outputs)} files in outputs_smoke")
-    return 0
+        outputs = sorted(output_dir.glob("*"))
+        print(f"Smoke test passed. Generated {len(outputs)} files in {output_dir}")
+        return 0
 
 
 if __name__ == "__main__":

@@ -434,7 +434,12 @@ def run_audit(algorithm: str, config: AppConfig, avalanche_percent: float) -> Au
     if avalanche_percent < 40.0 or avalanche_percent > 60.0:
         if verdict == "PASS":
             verdict = "WARN"
-        findings.append(f"Avalanche effect outside expected range (measured {avalanche_percent:.2f}%).")
+        findings.append(
+            "Avalanche effect outside expected range "
+            f"(measured {avalanche_percent:.2f}%). "
+            "Note: this metric is statistically unreliable for short inputs (under 64 bytes). "
+            "Re-test with larger payloads before drawing conclusions."
+        )
 
     if not findings:
         findings.append("No issues detected.")

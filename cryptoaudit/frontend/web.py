@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import secrets
@@ -7,6 +8,7 @@ import sqlite3
 import tempfile
 import threading
 import webbrowser
+import zipfile
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -19,6 +21,7 @@ from flask import (
     redirect,
     render_template_string,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -989,8 +992,6 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 request.form.get("benchmark_payload_size", ""), config.benchmark_payload_size
             )
             config.max_file_size_bytes = _coerce_optional_int(request.form.get("max_file_size_bytes", ""), config.max_file_size_bytes)
-            config.output_dir = (request.form.get("output_dir", "") or "outputs_web").strip()
-            validate_config(config)
 
             if ALGO_3DES in config.algorithms and request.form.get("confirm_legacy") != "yes":
                 raise ValueError("3DES-OFB requires explicit confirmation before running")
@@ -1008,32 +1009,43 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 if not input_text.strip():
                     raise ValueError("Raw text input cannot be empty in text mode")
 
-            result = execute_pipeline(config=config, input_file=input_file, input_text=input_text, password=password_buf)
+            with tempfile.TemporaryDirectory(prefix="cryptoaudit_web_encrypt_") as run_tmp:
+                config.output_dir = run_tmp
+                validate_config(config)
+                result = execute_pipeline(config=config, input_file=input_file, input_text=input_text, password=password_buf)
 
-            report_payload = json.loads(Path(result.report_json_path).read_text(encoding="utf-8"))
-            last_audit = _extract_last_audit_payload(report_payload, result.run_id)
-            session["last_audit"] = last_audit
-            audit_summary = _to_audit_summary(last_audit)
+                report_json_path = Path(result.report_json_path)
+                report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
+                last_audit = _extract_last_audit_payload(report_payload, result.run_id)
+                session["last_audit"] = last_audit
 
-            output_files: list[str] = []
-            if result.report_json_path:
-                output_files.append(result.report_json_path)
-            if result.report_html_path:
-                output_files.append(result.report_html_path)
-            output_files.extend(result.encrypted_artifact_paths)
+                if not result.encrypted_artifact_paths:
+                    raise ValueError("No encrypted artifact was generated")
 
-            return _render_page(
-                RESULT_BODY,
-                title="Encryption Complete",
-                success_message="Encryption successful. CryptoAudit artifacts and reports were saved locally.",
-                operation="Encryption + Audit",
-                warning=None,
-                output_dir=result.output_dir,
-                audit_summary=audit_summary,
-                output_files=output_files,
-                show_success_popup=True,
-                back_href=url_for("encrypt_page"),
-            )
+                artifact_path = Path(result.encrypted_artifact_paths[0])
+                report_html_path = Path(result.report_html_path)
+                artifact_bytes = artifact_path.read_bytes()
+                report_html_bytes = report_html_path.read_bytes()
+                artifact_name = artifact_path.name
+                report_name = report_html_path.name
+
+                artifact_path.unlink(missing_ok=True)
+                report_html_path.unlink(missing_ok=True)
+                report_json_path.unlink(missing_ok=True)
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr(artifact_name, artifact_bytes)
+                    zf.writestr(report_name, report_html_bytes)
+                zip_buffer.seek(0)
+
+                return send_file(
+                    zip_buffer,
+                    mimetype="application/zip",
+                    as_attachment=True,
+                    download_name=f"cryptoaudit_{result.run_id}.zip",
+                    max_age=0,
+                )
 
         except Exception as exc:
             flash(str(exc), "error")
@@ -1057,65 +1069,62 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 raise ValueError("Password is required")
             password_buf = bytearray(password.encode("utf-8"))
 
-            output_dir = (request.form.get("output_dir", "") or "outputs_web").strip()
             output_file_name = (request.form.get("output_file_name", "") or "").strip() or None
             decrypt_mode = (request.form.get("decrypt_mode", "artifact") or "artifact").strip().lower()
 
-            if decrypt_mode == "manual":
-                manual_algorithm = (request.form.get("manual_algorithm", "") or "").strip().lower()
-                manual_iterations = _coerce_optional_int(
-                    request.form.get("manual_pbkdf2_iterations", ""),
-                    DEFAULT_PBKDF2_ITERATIONS,
-                )
-                manual_salt_b64 = request.form.get("manual_salt_b64", "")
-                manual_nonce_b64 = request.form.get("manual_nonce_b64", "")
-                manual_ciphertext_b64 = request.form.get("manual_ciphertext_b64", "")
+            with tempfile.TemporaryDirectory(prefix="cryptoaudit_web_decrypt_") as run_tmp:
+                output_dir = run_tmp
+                if decrypt_mode == "manual":
+                    manual_algorithm = (request.form.get("manual_algorithm", "") or "").strip().lower()
+                    manual_iterations = _coerce_optional_int(
+                        request.form.get("manual_pbkdf2_iterations", ""),
+                        DEFAULT_PBKDF2_ITERATIONS,
+                    )
+                    manual_salt_b64 = request.form.get("manual_salt_b64", "")
+                    manual_nonce_b64 = request.form.get("manual_nonce_b64", "")
+                    manual_ciphertext_b64 = request.form.get("manual_ciphertext_b64", "")
 
-                result = execute_manual_decrypt_pipeline(
-                    algorithm=manual_algorithm,
-                    pbkdf2_iterations=manual_iterations,
-                    salt_b64=manual_salt_b64,
-                    nonce_or_iv_b64=manual_nonce_b64,
-                    ciphertext_b64=manual_ciphertext_b64,
-                    password=password_buf,
-                    output_dir=output_dir,
-                    output_file_name=output_file_name,
-                    allow_overwrite=False,
-                )
-            else:
-                temp_artifact = _save_upload_limited(app, "artifact_file", 5 * 1024 * 1024, suffix=".json")
-                result = execute_decrypt_pipeline(
-                    artifact_file=str(temp_artifact),
-                    password=password_buf,
-                    output_dir=output_dir,
-                    output_file_name=output_file_name,
-                    allow_overwrite=False,
+                    result = execute_manual_decrypt_pipeline(
+                        algorithm=manual_algorithm,
+                        pbkdf2_iterations=manual_iterations,
+                        salt_b64=manual_salt_b64,
+                        nonce_or_iv_b64=manual_nonce_b64,
+                        ciphertext_b64=manual_ciphertext_b64,
+                        password=password_buf,
+                        output_dir=output_dir,
+                        output_file_name=output_file_name,
+                        allow_overwrite=False,
+                    )
+                else:
+                    temp_artifact = _save_upload_limited(app, "artifact_file", 5 * 1024 * 1024, suffix=".json")
+                    result = execute_decrypt_pipeline(
+                        artifact_file=str(temp_artifact),
+                        password=password_buf,
+                        output_dir=output_dir,
+                        output_file_name=output_file_name,
+                        allow_overwrite=False,
+                    )
+
+                decrypted_path = Path(result.decrypted_file_path)
+                decrypted_bytes = decrypted_path.read_bytes()
+                download_name = decrypted_path.name
+                decrypted_path.unlink(missing_ok=True)
+
+                response = send_file(
+                    io.BytesIO(decrypted_bytes),
+                    mimetype="application/octet-stream",
+                    as_attachment=True,
+                    download_name=download_name,
+                    max_age=0,
                 )
 
-            output_files = [result.decrypted_file_path]
-            if result.artifact_path:
-                output_files.append(result.artifact_path)
+                if result.warning:
+                    response.headers["X-CryptoAudit-Warning"] = (
+                        "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023. "
+                        + result.warning
+                    )
 
-            warning_message = result.warning
-            if warning_message:
-                warning_message = (
-                    "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023. "
-                    + warning_message
-                )
-                flash(warning_message, "warn")
-
-            return _render_page(
-                RESULT_BODY,
-                title="Decryption Complete",
-                success_message="Decryption successful. Recovered data was saved locally.",
-                operation="Decryption",
-                warning=warning_message,
-                output_dir=result.output_dir,
-                audit_summary=None,
-                output_files=output_files,
-                show_success_popup=False,
-                back_href=url_for("decrypt_page"),
-            )
+                return response
 
         except Exception as exc:
             flash(str(exc), "error")

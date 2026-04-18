@@ -74,6 +74,8 @@ class TestWebInterface(unittest.TestCase):
         csrf = self._csrf_token_for("/app/encrypt")
 
         report_path = Path(self.temp_dir.name) / "report.json"
+        html_path = Path(self.temp_dir.name) / "report.html"
+        artifact_path = Path(self.temp_dir.name) / "aes.enc.json"
         report_path.write_text(
             json.dumps(
                 {
@@ -96,6 +98,8 @@ class TestWebInterface(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        html_path.write_text("<html><body>report</body></html>", encoding="utf-8")
+        artifact_path.write_text('{"artifact":"ok"}', encoding="utf-8")
 
         mock_execute_pipeline.return_value = type(
             "Result",
@@ -103,8 +107,8 @@ class TestWebInterface(unittest.TestCase):
             {
                 "output_dir": "outputs_web",
                 "report_json_path": str(report_path),
-                "report_html_path": "outputs_web/report.html",
-                "encrypted_artifact_paths": ["outputs_web/aes.enc.json"],
+                "report_html_path": str(html_path),
+                "encrypted_artifact_paths": [str(artifact_path)],
                 "run_id": "run-123",
             },
         )()
@@ -123,10 +127,9 @@ class TestWebInterface(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Encryption successful", response.data)
-        self.assertIn(b"Audit Summary", response.data)
-        self.assertIn(b"AEAD mode validated", response.data)
-        self.assertIn(b"Generated Output Files", response.data)
+        self.assertEqual(response.mimetype, "application/zip")
+        self.assertIn("cryptoaudit_run-123.zip", response.headers.get("Content-Disposition", ""))
+        self.assertGreater(len(response.data), 0)
         mock_execute_pipeline.assert_called_once()
 
         with self.client.session_transaction() as sess:
@@ -136,13 +139,15 @@ class TestWebInterface(unittest.TestCase):
     @mock.patch("cryptoaudit.frontend.web.execute_manual_decrypt_pipeline")
     def test_decrypt_warning_is_standards_cited(self, mock_manual_decrypt):
         csrf = self._csrf_token_for("/app/decrypt")
+        restored_path = Path(self.temp_dir.name) / "restored.bin"
+        restored_path.write_bytes(b"restored")
         mock_manual_decrypt.return_value = type(
             "DecryptResult",
             (),
             {
                 "output_dir": "outputs_web",
                 "artifact_path": "",
-                "decrypted_file_path": "outputs_web/restored.bin",
+                "decrypted_file_path": str(restored_path),
                 "warning": "3des-ofb is a compatibility option; decrypted output was produced.",
             },
         )()
@@ -163,7 +168,12 @@ class TestWebInterface(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023.", response.data)
+        self.assertEqual(response.mimetype, "application/octet-stream")
+        self.assertEqual(response.data, b"restored")
+        self.assertIn(
+            "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023.",
+            response.headers.get("X-CryptoAudit-Warning", ""),
+        )
 
 
 if __name__ == "__main__":
