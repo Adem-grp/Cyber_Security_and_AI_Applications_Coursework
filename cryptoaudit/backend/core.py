@@ -62,7 +62,7 @@ ALGORITHM_SPECS: Dict[str, Dict[str, Any]] = {
         "nonce_len": 12,
         "status": "recommended",
         "mode": "Poly1305",
-        "standard_ref": "RFC 8439 (modern AEAD), FIPS 140-3 validation context dependent",
+        "standard_ref": "RFC 8439 (ChaCha20-Poly1305 Internet Standard), FIPS 140-3 context-dependent",
     },
     ALGO_3DES: {
         "key_len": 24,
@@ -430,6 +430,25 @@ def run_audit(algorithm: str, config: AppConfig, avalanche_percent: float) -> Au
             verdict = "WARN"
         findings.append("Config indicates possible IV/nonce reuse; this can break confidentiality/integrity.")
         recommendation = "Ensure a fresh random IV/nonce for every encryption operation."
+
+    pbkdf2_n = int(config.pbkdf2_iterations)
+    if pbkdf2_n < 200000:
+        verdict = "FAIL"
+        findings.append(
+            f"PBKDF2 iteration count ({pbkdf2_n}) is critically low. "
+            "NIST SP 800-132 recommends a minimum of 210,000 iterations as "
+            "of 2023. Current setting is insufficient for secure key "
+            "derivation."
+        )
+        recommendation = "Increase PBKDF2 iterations to 600000 or above."
+    elif pbkdf2_n < 600000:
+        if verdict == "PASS":
+            verdict = "WARN"
+        findings.append(
+            f"PBKDF2 iteration count ({pbkdf2_n}) meets the minimum but falls below the recommended value of 600,000 "
+            "per NIST SP 800-132 guidance."
+        )
+        recommendation = "Increase PBKDF2 iterations to 600000 or above."
 
     if avalanche_percent < 40.0 or avalanche_percent > 60.0:
         if verdict == "PASS":
