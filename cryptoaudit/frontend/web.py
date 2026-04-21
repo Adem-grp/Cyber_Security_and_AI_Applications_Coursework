@@ -51,7 +51,6 @@ from cryptoaudit.backend.core import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-FEATURE_BILLING_PLACEHOLDER = True
 FEATURE_AUTH_ACCOUNTS = False
 
 BASE_TEMPLATE = """
@@ -256,9 +255,6 @@ ENCRYPT_BODY = """
 <div class="chip">Per-run random salt + nonce/IV</div>
 <div class="chip">Output path checks</div>
 <div class="chip">Local-only host binding</div>
-{% if billing_placeholder %}
-  <p class="muted" style="margin-top: 10px;">Account quota/token billing is reserved as a future feature and is intentionally disabled in this build.</p>
-{% endif %}
 
 <div class="modal-backdrop" id="legacyModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="legacyModalTitle">
   <div class="modal">
@@ -946,7 +942,6 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             defaults=_ui_defaults(),
             username=session.get("user"),
             auth_enabled=bool(app.config.get("AUTH_ENABLED")),
-            billing_placeholder=FEATURE_BILLING_PLACEHOLDER,
         )
 
     @app.get("/app/decrypt")
