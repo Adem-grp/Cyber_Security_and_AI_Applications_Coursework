@@ -67,7 +67,7 @@ ALGORITHM_SPECS: Dict[str, Dict[str, Any]] = {
     ALGO_3DES: {
         "key_len": 24,
         "nonce_len": 8,
-        "status": "compatibility",
+        "status": "compatible",
         "mode": "OFB",
         "standard_ref": "NIST SP 800-131A Rev.2 transition guidance, FIPS 140-3 transition concerns",
     },
