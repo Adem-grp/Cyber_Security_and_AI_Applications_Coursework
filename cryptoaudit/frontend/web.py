@@ -388,12 +388,14 @@ DECRYPT_BODY = """
   <label>Password</label>
   <input type="password" name="password" autocomplete="new-password" required>
 
+  <label>Output filename (required)</label>
+  <input type="text" name="output_file_name" placeholder="e.g. document.pdf, video.mp4, notes.txt" required>
+  <p class="muted">Enter the original filename with its extension so the decrypted file downloads correctly.</p>
+
   <details>
     <summary><strong>Advanced Settings (optional)</strong></summary>
     <label>Output Directory</label>
     <input type="text" name="output_dir" value="outputs_web">
-    <label>Output File Name (filename only)</label>
-    <input type="text" name="output_file_name" placeholder="example: restored.bin">
   </details>
 
   <div class="actions">
@@ -815,7 +817,7 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
         SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=False,
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
-        MAX_CONTENT_LENGTH=110 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=104857600,
         AUTH_ENABLED=FEATURE_AUTH_ACCOUNTS,
     )
 
@@ -831,6 +833,11 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
     @app.context_processor
     def inject_csrf() -> dict[str, Any]:
         return {"csrf_token": _csrf_token()}
+
+    @app.errorhandler(413)
+    def request_entity_too_large(error: Any) -> Any:
+        flash("Uploaded file exceeds the maximum allowed size of 100MB.", "error")
+        return redirect(request.referrer or url_for("decrypt_page"))
 
     @app.get("/")
     def root() -> Any:
@@ -1069,7 +1076,13 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 raise ValueError("Password is required")
             password_buf = bytearray(password.encode("utf-8"))
 
-            output_file_name = (request.form.get("output_file_name", "") or "").strip() or None
+            output_file_name = (request.form.get("output_file_name", "") or "").strip()
+            if not output_file_name:
+                flash(
+                    "Output filename is required. Please enter the original filename with its extension (e.g. document.pdf)",
+                    "error",
+                )
+                return redirect(url_for("decrypt_page"))
             decrypt_mode = (request.form.get("decrypt_mode", "artifact") or "artifact").strip().lower()
 
             with tempfile.TemporaryDirectory(prefix="cryptoaudit_web_decrypt_") as run_tmp:
@@ -1093,28 +1106,34 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                         password=password_buf,
                         output_dir=output_dir,
                         output_file_name=output_file_name,
+                        original_filename=None,
                         allow_overwrite=False,
                     )
                 else:
-                    temp_artifact = _save_upload_limited(app, "artifact_file", 5 * 1024 * 1024, suffix=".json")
+                    temp_artifact = _save_upload_limited(
+                        app,
+                        "artifact_file",
+                        int(app.config.get("MAX_CONTENT_LENGTH", 104857600)),
+                        suffix=".json",
+                    )
                     result = execute_decrypt_pipeline(
                         artifact_file=str(temp_artifact),
                         password=password_buf,
                         output_dir=output_dir,
                         output_file_name=output_file_name,
+                        original_filename=None,
                         allow_overwrite=False,
                     )
 
                 decrypted_path = Path(result.decrypted_file_path)
                 decrypted_bytes = decrypted_path.read_bytes()
-                download_name = decrypted_path.name
                 decrypted_path.unlink(missing_ok=True)
 
                 response = send_file(
                     io.BytesIO(decrypted_bytes),
                     mimetype="application/octet-stream",
                     as_attachment=True,
-                    download_name=download_name,
+                    download_name=output_file_name,
                     max_age=0,
                 )
 

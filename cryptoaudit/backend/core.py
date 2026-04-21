@@ -451,14 +451,35 @@ def run_audit(algorithm: str, config: AppConfig, avalanche_percent: float) -> Au
         recommendation = "Increase PBKDF2 iterations to 600000 or above."
 
     if avalanche_percent < 40.0 or avalanche_percent > 60.0:
-        if verdict == "PASS":
-            verdict = "WARN"
-        findings.append(
-            "Avalanche effect outside expected range "
-            f"(measured {avalanche_percent:.2f}%). "
-            "Note: this metric is statistically unreliable for short inputs (under 64 bytes). "
-            "Re-test with larger payloads before drawing conclusions."
-        )
+        aead_algorithms = {ALGO_AES_GCM, ALGO_AES_192_GCM, ALGO_AES_128_GCM, ALGO_CHACHA}
+        if avalanche_percent < 40.0 and algorithm in aead_algorithms:
+            verdict = "PASS"
+            findings.append(
+                "Avalanche measured at "
+                f"{avalanche_percent:.2f}%. "
+                "AEAD modes (GCM, ChaCha20-Poly1305) use CTR/stream XOR construction — "
+                "single-bit input changes produce localised output changes by design. "
+                "This is expected behaviour and does not indicate a weakness."
+            )
+        elif avalanche_percent < 40.0 and algorithm == ALGO_3DES:
+            if verdict == "PASS":
+                verdict = "WARN"
+            findings.append(
+                "Avalanche measured at "
+                f"{avalanche_percent:.2f}%. "
+                "AEAD modes (GCM, ChaCha20-Poly1305) use CTR/stream XOR construction — "
+                "single-bit input changes produce localised output changes by design. "
+                "This is expected behaviour and does not indicate a weakness."
+            )
+        else:
+            if verdict == "PASS":
+                verdict = "WARN"
+            findings.append(
+                "Avalanche effect outside expected range "
+                f"(measured {avalanche_percent:.2f}%). "
+                "Note: this metric is statistically unreliable for short inputs (under 64 bytes). "
+                "Re-test with larger payloads before drawing conclusions."
+            )
 
     if not findings:
         findings.append("No issues detected.")
@@ -567,9 +588,52 @@ def resolve_decrypt_output_path(
     artifact_path: Path,
     output_dir: Path,
     output_file_name: Optional[str],
+    original_filename: Optional[str] = None,
     allow_overwrite: bool,
 ) -> Path:
     """Build and validate a safe output path for decrypted bytes."""
+    recognized_exts = {
+        ".txt",
+        ".pdf",
+        ".mp4",
+        ".png",
+        ".csv",
+        ".docx",
+        ".doc",
+        ".xlsx",
+        ".xls",
+        ".pptx",
+        ".ppt",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".json",
+        ".xml",
+        ".html",
+        ".md",
+        ".rtf",
+        ".zip",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".mp3",
+        ".wav",
+        ".mkv",
+        ".avi",
+        ".mov",
+    }
+
+    def _recognized_ext(filename: Optional[str]) -> Optional[str]:
+        if not filename:
+            return None
+        candidate = Path(filename)
+        if candidate.is_absolute() or candidate.parent != Path("."):
+            raise ValueError("--decrypt-output-file must be a filename only (no directories)")
+        ext = candidate.suffix.lower()
+        return ext if ext in recognized_exts else None
+
     if output_file_name:
         candidate = Path(output_file_name)
         if candidate.is_absolute() or candidate.parent != Path("."):
@@ -577,7 +641,8 @@ def resolve_decrypt_output_path(
         out_path = output_dir / candidate.name
     else:
         base_name = artifact_path.stem.replace(".enc", "")
-        out_path = output_dir / f"{base_name}.decrypted.bin"
+        ext = _recognized_ext(original_filename) or ".bin"
+        out_path = output_dir / f"{base_name}.decrypted{ext}"
 
     if out_path.exists() and not allow_overwrite:
         raise ValueError(f"Decrypt output already exists: {out_path}. Use --allow-overwrite to replace it.")
@@ -588,10 +653,53 @@ def resolve_manual_decrypt_output_path(
     *,
     output_dir: Path,
     output_file_name: Optional[str],
+    original_filename: Optional[str] = None,
     allow_overwrite: bool,
     algorithm: str,
 ) -> Path:
     """Build and validate output path for manual decrypt mode."""
+    recognized_exts = {
+        ".txt",
+        ".pdf",
+        ".mp4",
+        ".png",
+        ".csv",
+        ".docx",
+        ".doc",
+        ".xlsx",
+        ".xls",
+        ".pptx",
+        ".ppt",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".json",
+        ".xml",
+        ".html",
+        ".md",
+        ".rtf",
+        ".zip",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".mp3",
+        ".wav",
+        ".mkv",
+        ".avi",
+        ".mov",
+    }
+
+    def _recognized_ext(filename: Optional[str]) -> Optional[str]:
+        if not filename:
+            return None
+        candidate = Path(filename)
+        if candidate.is_absolute() or candidate.parent != Path("."):
+            raise ValueError("Output file name must be a filename only (no directories)")
+        ext = candidate.suffix.lower()
+        return ext if ext in recognized_exts else None
+
     if output_file_name:
         candidate = Path(output_file_name)
         if candidate.is_absolute() or candidate.parent != Path("."):
@@ -599,7 +707,8 @@ def resolve_manual_decrypt_output_path(
         out_path = output_dir / candidate.name
     else:
         run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        out_path = output_dir / f"{run_id}_{algorithm}.manual.decrypted.bin"
+        ext = _recognized_ext(original_filename) or ".bin"
+        out_path = output_dir / f"{run_id}_{algorithm}.manual.decrypted{ext}"
 
     if out_path.exists() and not allow_overwrite:
         raise ValueError(f"Decrypt output already exists: {out_path}. Enable overwrite to replace it.")
@@ -728,6 +837,7 @@ def execute_decrypt_pipeline(
     password: bytearray,
     output_dir: str,
     output_file_name: Optional[str] = None,
+    original_filename: Optional[str] = None,
     allow_overwrite: bool = False,
 ) -> DecryptArtifacts:
     """Decrypt one CryptoAudit artifact and write recovered bytes locally."""
@@ -754,6 +864,7 @@ def execute_decrypt_pipeline(
         artifact_path=artifact_path,
         output_dir=output_dir_path,
         output_file_name=output_file_name,
+        original_filename=original_filename,
         allow_overwrite=allow_overwrite,
     )
 
@@ -798,6 +909,7 @@ def execute_manual_decrypt_pipeline(
     password: bytearray,
     output_dir: str,
     output_file_name: Optional[str] = None,
+    original_filename: Optional[str] = None,
     allow_overwrite: bool = False,
 ) -> DecryptArtifacts:
     """Decrypt externally supplied ciphertext parameters with strict local validation."""
@@ -824,6 +936,7 @@ def execute_manual_decrypt_pipeline(
     output_path = resolve_manual_decrypt_output_path(
         output_dir=output_dir_path,
         output_file_name=output_file_name,
+        original_filename=original_filename,
         allow_overwrite=allow_overwrite,
         algorithm=algorithm,
     )

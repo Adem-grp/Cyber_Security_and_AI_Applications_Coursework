@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 import json
+import io
 from pathlib import Path
 from unittest import mock
 
@@ -49,6 +50,16 @@ class TestWebInterface(unittest.TestCase):
         response = self.client.get("/app/audit")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"No audit data yet. Run an encryption first.", response.data)
+
+    def test_decrypt_page_shows_required_output_filename_input(self):
+        response = self.client.get("/app/decrypt")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Output filename (required)", response.data)
+        self.assertIn(b"e.g. document.pdf, video.mp4, notes.txt", response.data)
+        self.assertIn(
+            b"Enter the original filename with its extension so the decrypted file downloads correctly.",
+            response.data,
+        )
 
     def test_encrypt_requires_legacy_confirmation_for_3des(self):
         csrf = self._csrf_token_for("/app/encrypt")
@@ -163,6 +174,7 @@ class TestWebInterface(unittest.TestCase):
                 "manual_nonce_b64": "MDEyMzQ1Njc=",
                 "manual_ciphertext_b64": "AA==",
                 "password": "VeryStrongPassword!123",
+                "output_file_name": "restored.bin",
             },
             follow_redirects=True,
         )
@@ -174,6 +186,58 @@ class TestWebInterface(unittest.TestCase):
             "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023.",
             response.headers.get("X-CryptoAudit-Warning", ""),
         )
+
+    @mock.patch("cryptoaudit.frontend.web.execute_decrypt_pipeline")
+    def test_decrypt_download_uses_user_filename_when_provided(self, mock_decrypt_pipeline):
+        csrf = self._csrf_token_for("/app/decrypt")
+        restored_path = Path(self.temp_dir.name) / "restored.bin"
+        restored_path.write_bytes(b"restored")
+        mock_decrypt_pipeline.return_value = type(
+            "DecryptResult",
+            (),
+            {
+                "output_dir": "outputs_web",
+                "artifact_path": "",
+                "decrypted_file_path": str(restored_path),
+                "warning": None,
+            },
+        )()
+
+        response = self.client.post(
+            "/decrypt",
+            data={
+                "csrf_token": csrf,
+                "decrypt_mode": "artifact",
+                "password": "VeryStrongPassword!123",
+                "output_file_name": "document.pdf",
+                "artifact_file": (io.BytesIO(b"{}"), "20260419T100000Z_invoice.pdf_enc.json"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("filename=document.pdf", response.headers.get("Content-Disposition", ""))
+
+    @mock.patch("cryptoaudit.frontend.web.execute_decrypt_pipeline")
+    def test_decrypt_requires_output_filename(self, mock_decrypt_pipeline):
+        csrf = self._csrf_token_for("/app/decrypt")
+
+        response = self.client.post(
+            "/decrypt",
+            data={
+                "csrf_token": csrf,
+                "decrypt_mode": "artifact",
+                "password": "VeryStrongPassword!123",
+                "artifact_file": (io.BytesIO(b"{}"), "20260419T100000Z_invoice.pdf_enc.json"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Output filename is required.", response.data)
+        mock_decrypt_pipeline.assert_not_called()
 
 
 if __name__ == "__main__":
