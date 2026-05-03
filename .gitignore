@@ -1,0 +1,7 @@
+# Auto-generated local data
+.cryptoaudit_web/
+*.pyc
+__pycache__/
+outputs/
+outputs_web/
+

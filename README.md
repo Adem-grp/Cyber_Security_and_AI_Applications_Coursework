@@ -35,15 +35,16 @@ python main.py
 
 By default, `main.py` launches the web interface at `http://127.0.0.1:8765`.
 
-First run flow:
+Note: A secret key for session signing is automatically generated on first run and stored locally in `.cryptoaudit_web/secret.key`. No manual configuration is required.
 
-- Create the first local account on `/setup`
-- Sign in on `/login`
-- Use `/app` for encrypt + decrypt operations
+First run:
+
+1. Run: `python main.py`
+2. Open `http://127.0.0.1:8765` in your browser
+3. Use Encrypt, Decrypt, and Audit from the navigation bar
 
 Security behavior in web mode:
 
-- Login credentials are hashed in a local SQLite DB (`.cryptoaudit_web/users.db`)
 - Session cookies are HTTPOnly + SameSite=Strict
 - CSRF token protection on state-changing forms
 - Passwords are submitted only via POST form body (never query string)

@@ -4,19 +4,16 @@ import io
 import json
 import os
 import secrets
-import sqlite3
 import tempfile
 import threading
 import webbrowser
 import zipfile
 from datetime import timedelta
-from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from flask import (
     Flask,
-    current_app,
     flash,
     redirect,
     render_template_string,
@@ -25,7 +22,6 @@ from flask import (
     session,
     url_for,
 )
-from werkzeug.security import check_password_hash, generate_password_hash
 
 from cryptoaudit.backend.core import (
     ALGO_3DES,
@@ -51,7 +47,6 @@ from cryptoaudit.backend.core import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-FEATURE_AUTH_ACCOUNTS = False
 
 BASE_TEMPLATE = """
 <!doctype html>
@@ -184,18 +179,8 @@ APP_NAV = """
     <a class="nav-link {% if active_page == 'decrypt' %}active{% endif %}" href="{{ url_for('decrypt_page') }}">Decrypt</a>
     <a class="nav-link {% if active_page == 'audit' %}active{% endif %}" href="{{ url_for('audit_page') }}">Audit</a>
   </div>
-  {% if auth_enabled %}
-  <form method="post" action="{{ url_for('logout') }}" style="margin: 0;">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="secondary">Logout</button>
-  </form>
-  {% endif %}
 </div>
-{% if auth_enabled %}
-  <p class="muted">Signed in as <strong>{{ username }}</strong>. All data processing and outputs stay local.</p>
-{% else %}
-  <p class="muted">Guest mode enabled. All data processing and outputs stay local.</p>
-{% endif %}
+<p class="muted">All data processing and outputs stay local.</p>
 """
 
 ENCRYPT_BODY = """
@@ -609,20 +594,12 @@ def _ui_decrypt_algorithms() -> list[dict[str, str]]:
     ]
 
 
-def _data_dir(app: Flask) -> Path:
-    return Path(app.config["CRYPTOAUDIT_DATA_DIR"]).resolve()
-
-
-def _db_path(app: Flask) -> Path:
-    return _data_dir(app) / "users.db"
-
-
 def _secret_path(app: Flask) -> Path:
-    return _data_dir(app) / "secret.key"
+    return Path(app.config["CRYPTOAUDIT_DATA_DIR"]).resolve() / "secret.key"
 
 
 def _temp_upload_dir(app: Flask) -> Path:
-    return _data_dir(app) / "upload_tmp"
+    return Path(app.config["CRYPTOAUDIT_DATA_DIR"]).resolve() / "upload_tmp"
 
 
 def _load_or_create_secret(path: Path) -> str:
@@ -635,48 +612,6 @@ def _load_or_create_secret(path: Path) -> str:
     value = secrets.token_urlsafe(48)
     path.write_text(value, encoding="utf-8")
     return value
-
-
-def _get_conn(app: Flask) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(_db_path(app)))
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _init_db(app: Flask) -> None:
-    _data_dir(app).mkdir(parents=True, exist_ok=True)
-    _temp_upload_dir(app).mkdir(parents=True, exist_ok=True)
-    with _get_conn(app) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_utc TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-
-
-def _user_count(app: Flask) -> int:
-    with _get_conn(app) as conn:
-        row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
-        return int(row["c"])
-
-
-def _create_user(app: Flask, username: str, password: str) -> None:
-    hash_value = generate_password_hash(password)
-    with _get_conn(app) as conn:
-        conn.execute("INSERT INTO users(username, password_hash) VALUES(?, ?)", (username, hash_value))
-
-
-def _authenticate_user(app: Flask, username: str, password: str) -> bool:
-    with _get_conn(app) as conn:
-        row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
-    if not row:
-        return False
-    return bool(check_password_hash(row["password_hash"], password))
 
 
 def _csrf_token() -> str:
@@ -692,18 +627,6 @@ def _require_csrf() -> None:
     provided = request.form.get("csrf_token", "")
     if not expected or not provided or not secrets.compare_digest(expected, provided):
         raise ValueError("Invalid CSRF token")
-
-
-def _login_required(handler: Callable[..., Any]) -> Callable[..., Any]:
-    @wraps(handler)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if not bool(current_app.config.get("AUTH_ENABLED", False)):
-            return handler(*args, **kwargs)
-        if not session.get("user"):
-            return redirect(url_for("login"))
-        return handler(*args, **kwargs)
-
-    return wrapper
 
 
 def _selected_algorithms() -> list[str]:
@@ -832,17 +755,15 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
         SESSION_COOKIE_SECURE=False,
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
         MAX_CONTENT_LENGTH=104857600,
-        AUTH_ENABLED=FEATURE_AUTH_ACCOUNTS,
     )
 
     if test_config:
         app.config.update(test_config)
 
+    # SECRET_KEY is auto-generated on first run and stored
+    # locally. No manual configuration required.
     if not app.config.get("SECRET_KEY"):
         app.config["SECRET_KEY"] = _load_or_create_secret(_secret_path(app))
-
-    if app.config.get("AUTH_ENABLED"):
-        _init_db(app)
 
     @app.context_processor
     def inject_csrf() -> dict[str, Any]:
@@ -868,125 +789,39 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
         except Exception as exc:
             flash(str(exc), "error")
             return redirect(url_for("welcome"))
-
-        if app.config.get("AUTH_ENABLED") and _user_count(app) == 0:
-            return redirect(url_for("setup"))
-        if app.config.get("AUTH_ENABLED") and not session.get("user"):
-            return redirect(url_for("login"))
-        return redirect(url_for("app_home"))
-
-    @app.route("/setup", methods=["GET", "POST"])
-    def setup() -> Any:
-        if not app.config.get("AUTH_ENABLED"):
-            flash("Account setup is disabled in this build.", "warn")
-            return redirect(url_for("welcome"))
-        if _user_count(app) > 0:
-            return redirect(url_for("login"))
-
-        if request.method == "POST":
-            try:
-                _require_csrf()
-                username = request.form.get("username", "").strip()
-                password = request.form.get("password", "")
-                confirm = request.form.get("confirm_password", "")
-
-                if len(username) < 3:
-                    raise ValueError("Username must be at least 3 characters")
-                if len(password) < 12:
-                    raise ValueError("Password must be at least 12 characters")
-                if password != confirm:
-                    raise ValueError("Passwords do not match")
-
-                _create_user(app, username, password)
-                flash("Account created. Please sign in.", "success")
-                return redirect(url_for("login"))
-            except Exception as exc:
-                flash(str(exc), "error")
-
-        return _render_page(SETUP_BODY)
-
-    @app.route("/login", methods=["GET", "POST"])
-    def login() -> Any:
-        if not app.config.get("AUTH_ENABLED"):
-            flash("Account login is disabled in this build.", "warn")
-            return redirect(url_for("welcome"))
-        if _user_count(app) == 0:
-            return redirect(url_for("setup"))
-
-        if request.method == "POST":
-            try:
-                _require_csrf()
-                username = request.form.get("username", "").strip()
-                password = request.form.get("password", "")
-                if not _authenticate_user(app, username, password):
-                    raise ValueError("Invalid credentials")
-
-                session.clear()
-                session["user"] = username
-                session["csrf_token"] = secrets.token_urlsafe(32)
-                return redirect(url_for("app_home"))
-            except Exception as exc:
-                flash(str(exc), "error")
-
-        return _render_page(LOGIN_BODY)
-
-    @app.post("/logout")
-    @_login_required
-    def logout() -> Any:
-        if not app.config.get("AUTH_ENABLED"):
-            return redirect(url_for("welcome"))
-        try:
-            _require_csrf()
-        except Exception as exc:
-            flash(str(exc), "error")
-            return redirect(url_for("app_home"))
-
-        session.clear()
-        flash("Signed out.", "success")
-        return redirect(url_for("login"))
+        return _render_page(WELCOME_BODY)
 
     @app.get("/app")
-    @_login_required
     def app_home() -> Any:
         return redirect(url_for("encrypt_page"))
 
     @app.get("/app/encrypt")
-    @_login_required
     def encrypt_page() -> Any:
         return _render_app_page(
             body_template=ENCRYPT_BODY,
             active_page="encrypt",
             algorithms=_ui_algorithms(),
             defaults=_ui_defaults(),
-            username=session.get("user"),
-            auth_enabled=bool(app.config.get("AUTH_ENABLED")),
         )
 
     @app.get("/app/decrypt")
-    @_login_required
     def decrypt_page() -> Any:
         return _render_app_page(
             body_template=DECRYPT_BODY,
             active_page="decrypt",
             decrypt_algorithms=_ui_decrypt_algorithms(),
             defaults=_ui_defaults(),
-            username=session.get("user"),
-            auth_enabled=bool(app.config.get("AUTH_ENABLED")),
         )
 
     @app.get("/app/audit")
-    @_login_required
     def audit_page() -> Any:
         return _render_app_page(
             body_template=AUDIT_BODY,
             active_page="audit",
             last_audit=session.get("last_audit"),
-            username=session.get("user"),
-            auth_enabled=bool(app.config.get("AUTH_ENABLED")),
         )
 
     @app.post("/encrypt")
-    @_login_required
     def encrypt() -> Any:
         password_buf: Optional[bytearray] = None
         temp_input: Optional[Path] = None
@@ -1077,7 +912,6 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 wipe_bytearray(password_buf)
 
     @app.post("/decrypt")
-    @_login_required
     def decrypt() -> Any:
         password_buf: Optional[bytearray] = None
         temp_artifact: Optional[Path] = None
