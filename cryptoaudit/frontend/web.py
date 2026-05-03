@@ -199,7 +199,7 @@ APP_NAV = """
 """
 
 ENCRYPT_BODY = """
-<h2>Encrypt + Audit</h2>
+<h2>Encrypt</h2>
 <form method="post" action="{{ url_for('encrypt') }}" enctype="multipart/form-data" id="encryptForm">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="confirm_legacy" id="confirmLegacy" value="no">
@@ -210,12 +210,16 @@ ENCRYPT_BODY = """
         <label style="display:inline; font-weight:normal; margin-left: 10px;"><input type="radio" name="input_mode" value="file"> File Upload</label>
       </div>
 
-      <label>Raw Text (used when Input Mode = Raw Text)</label>
-      <textarea name="input_text" placeholder="Type plaintext to encrypt"></textarea>
+      <div id="raw-text-section">
+        <label>Raw Text (used when Input Mode = Raw Text)</label>
+        <textarea name="input_text" placeholder="Type plaintext to encrypt"></textarea>
+      </div>
 
-      <label>File Upload (used when Input Mode = File Upload)</label>
-      <input type="file" id="inputFile" name="input_file">
-      <div class="dropzone" id="dropzone">Drag and drop a file here (including videos), or use file chooser.</div>
+      <div id="file-upload-section">
+        <label>File Upload (used when Input Mode = File Upload)</label>
+        <input type="file" id="inputFile" name="input_file">
+        <div class="dropzone" id="dropzone">Drag and drop a file here (including videos), or use file chooser.</div>
+      </div>
 
       <label>Algorithm</label>
       <select name="algorithm" id="algorithmSelect" required>
@@ -270,6 +274,9 @@ ENCRYPT_BODY = """
 
 <script>
 (function () {
+  const inputModeRadios = document.querySelectorAll('input[name="input_mode"]');
+  const rawTextSection = document.getElementById("raw-text-section");
+  const fileUploadSection = document.getElementById("file-upload-section");
   const dropzone = document.getElementById("dropzone");
   const inputFile = document.getElementById("inputFile");
   const encryptForm = document.getElementById("encryptForm");
@@ -278,6 +285,17 @@ ENCRYPT_BODY = """
   const legacyContinueBtn = document.getElementById("legacyContinueBtn");
   const legacyRetryBtn = document.getElementById("legacyRetryBtn");
   let bypassLegacyCheck = false;
+
+  function updateInputModeSections() {
+    const selected = Array.from(inputModeRadios).find(x => x.checked);
+    const mode = selected ? selected.value : "text";
+    const useText = mode === "text";
+    rawTextSection.style.display = useText ? "block" : "none";
+    fileUploadSection.style.display = useText ? "none" : "block";
+  }
+
+  inputModeRadios.forEach((radio) => radio.addEventListener("change", updateInputModeSections));
+  updateInputModeSections();
 
   function hasLegacySelected() {
     const selected = document.getElementById("algorithmSelect");
