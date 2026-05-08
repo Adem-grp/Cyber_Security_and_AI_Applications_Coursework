@@ -6,6 +6,7 @@ import os
 import secrets
 import tempfile
 import threading
+import time
 import webbrowser
 import zipfile
 from datetime import timedelta
@@ -447,46 +448,54 @@ DECRYPT_BODY = """
 
 AUDIT_BODY = """
 <h2>Audit Information</h2>
-{% if last_audit %}
-  <p class="muted"><strong>Run ID:</strong> <code>{{ last_audit.run_id }}</code> | <strong>Timestamp:</strong> <code>{{ last_audit.timestamp }}</code></p>
-  <table>
-    <thead>
-      <tr>
-        <th>Algorithm</th>
-        <th>Verdict</th>
-        <th>Findings</th>
-        <th>Recommendation</th>
-        <th>Standard</th>
-        <th>Avalanche (%)</th>
-        <th>Avg Encrypt (ms)</th>
-        <th>Throughput (MB/s)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in last_audit.algorithms %}
-      <tr>
-        <td><code>{{ row.name }}</code></td>
-        <td>
-          <span class="badge {% if row.verdict == 'PASS' %}badge-pass{% elif row.verdict == 'WARN' %}badge-warn{% else %}badge-fail{% endif %}">{{ row.verdict }}</span>
-        </td>
-        <td>
-          {% if row.findings %}
-            <ul>
-              {% for item in row.findings %}<li>{{ item }}</li>{% endfor %}
-            </ul>
-          {% else %}
-            <span class="muted">None</span>
-          {% endif %}
-        </td>
-        <td>{{ row.recommendation }}</td>
-        <td>{{ row.standard_reference }}</td>
-        <td>{{ row.difference_percent }}</td>
-        <td>{{ row.avg_encrypt_ms }}</td>
-        <td>{{ row.throughput_mb_s }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if audit_history %}
+  {% for entry in audit_history %}
+  <details>
+    <summary>
+      <strong>Run ID:</strong> <code>{{ entry.run_id }}</code>
+      <a href="{{ url_for('download_result', run_id=entry.run_id) }}"><button>Download ZIP</button></a>
+      | <strong>Timestamp:</strong> <code>{{ entry.timestamp }}</code>
+    </summary>
+    <table>
+      <thead>
+        <tr>
+          <th>Algorithm</th>
+          <th>Verdict</th>
+          <th>Findings</th>
+          <th>Recommendation</th>
+          <th>Standard</th>
+          <th>Avalanche (%)</th>
+          <th>Avg Encrypt (ms)</th>
+          <th>Throughput (MB/s)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in entry.algorithms %}
+        <tr>
+          <td><code>{{ row.name }}</code></td>
+          <td>
+            <span class="badge {% if row.verdict == 'PASS' %}badge-pass{% elif row.verdict == 'WARN' %}badge-warn{% else %}badge-fail{% endif %}">{{ row.verdict }}</span>
+          </td>
+          <td>
+            {% if row.findings %}
+              <ul>
+                {% for item in row.findings %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+            {% else %}
+              <span class="muted">None</span>
+            {% endif %}
+          </td>
+          <td>{{ row.recommendation }}</td>
+          <td>{{ row.standard_reference }}</td>
+          <td>{{ row.difference_percent }}</td>
+          <td>{{ row.avg_encrypt_ms }}</td>
+          <td>{{ row.throughput_mb_s }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endfor %}
 {% else %}
   <p class="muted">No audit data yet. Run an encryption first.</p>
 {% endif %}
@@ -547,6 +556,55 @@ RESULT_BODY = """
 """
 
 
+RESULT_PAGE_BODY = """
+<h2>Encryption Result</h2>
+<p class="muted">Your encrypted artifact and audit report are ready to download.</p>
+<p><strong>Run ID:</strong> <code>{{ run_id }}</code> | <strong>Timestamp:</strong> <code>{{ timestamp }}</code></p>
+{% if audit_summary %}
+  <p><strong>Audit Summary:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Algorithm</th>
+        <th>Verdict</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in audit_summary %}
+      <tr>
+        <td><code>{{ row.name }}</code></td>
+        <td>
+          <span class="badge {% if row.verdict == 'PASS' %}badge-pass{% elif row.verdict == 'WARN' %}badge-warn{% else %}badge-fail{% endif %}">{{ row.verdict }}</span>
+        </td>
+        <td>{{ row.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+<div class="actions">
+  <a href="{{ url_for('download_result', run_id=run_id) }}"><button id="downloadResultsBtn">Download Results (ZIP)</button></a>
+</div>
+<script>
+(function () {
+  let downloaded = false;
+  const downloadButton = document.getElementById("downloadResultsBtn");
+  if (downloadButton) {
+    downloadButton.addEventListener("click", function () {
+      downloaded = true;
+    });
+  }
+  window.onbeforeunload = function () {
+    if (!downloaded) {
+      return "You have not downloaded your encrypted results yet. If you leave this page the download link may expire.";
+    }
+  };
+})();
+</script>
+"""
+
+
 def _render_page(body_template: str, **context: Any) -> str:
     body_html = render_template_string(body_template, **context)
     return render_template_string(BASE_TEMPLATE, body=body_html)
@@ -600,6 +658,28 @@ def _secret_path(app: Flask) -> Path:
 
 def _temp_upload_dir(app: Flask) -> Path:
     return Path(app.config["CRYPTOAUDIT_DATA_DIR"]).resolve() / "upload_tmp"
+
+
+def _download_dir() -> Path:
+    path = Path(tempfile.gettempdir()) / "cryptoaudit_downloads"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _download_path(run_id: str) -> Path:
+    return _download_dir() / f"cryptoaudit_{run_id}.zip"
+
+
+def _cleanup_downloads(max_age_seconds: int = 86400) -> None:
+    cutoff = time.time() - max_age_seconds
+    for item in _download_dir().iterdir():
+        if not item.is_file():
+            continue
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def _load_or_create_secret(path: Path) -> str:
@@ -689,6 +769,22 @@ def _to_audit_summary(last_audit: dict[str, Any]) -> list[dict[str, str]]:
     return summary
 
 
+def _audit_history_from_session() -> list[dict[str, Any]]:
+    history = session.get("audit_history")
+    if not isinstance(history, list):
+        history = []
+    if not history and session.get("last_audit"):
+        history = [session.get("last_audit")]
+    return history
+
+
+def _find_audit_entry(run_id: str) -> Optional[dict[str, Any]]:
+    for entry in _audit_history_from_session():
+        if entry.get("run_id") == run_id:
+            return entry
+    return None
+
+
 def _config_from_upload(default: AppConfig) -> AppConfig:
     uploaded = request.files.get("config_file")
     if not uploaded or not uploaded.filename:
@@ -765,6 +861,8 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
     if not app.config.get("SECRET_KEY"):
         app.config["SECRET_KEY"] = _load_or_create_secret(_secret_path(app))
 
+    _cleanup_downloads()
+
     @app.context_processor
     def inject_csrf() -> dict[str, Any]:
         return {"csrf_token": _csrf_token()}
@@ -789,7 +887,7 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
         except Exception as exc:
             flash(str(exc), "error")
             return redirect(url_for("welcome"))
-        return _render_page(WELCOME_BODY)
+        return redirect(url_for("app_home"))
 
     @app.get("/app")
     def app_home() -> Any:
@@ -815,10 +913,41 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
 
     @app.get("/app/audit")
     def audit_page() -> Any:
+        history = list(reversed(_audit_history_from_session()))
         return _render_app_page(
             body_template=AUDIT_BODY,
             active_page="audit",
-            last_audit=session.get("last_audit"),
+            audit_history=history,
+        )
+
+    @app.get("/app/result/<run_id>")
+    def result_page(run_id: str) -> Any:
+        entry = _find_audit_entry(run_id)
+        if not entry:
+            flash("Audit data not found for this run. Please run encryption again.", "error")
+            return redirect(url_for("encrypt_page"))
+        return _render_app_page(
+            body_template=RESULT_PAGE_BODY,
+            active_page="encrypt",
+            run_id=run_id,
+            timestamp=entry.get("timestamp", ""),
+            audit_summary=_to_audit_summary(entry),
+        )
+
+    @app.get("/app/download/<run_id>")
+    def download_result(run_id: str) -> Any:
+        zip_path = _download_path(run_id)
+        if not zip_path.exists():
+            flash("Download expired. Please run encryption again.", "error")
+            return redirect(url_for("encrypt_page"))
+        zip_bytes = zip_path.read_bytes()
+        zip_path.unlink(missing_ok=True)
+        return send_file(
+            io.BytesIO(zip_bytes),
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"cryptoaudit_{run_id}.zip",
+            max_age=0,
         )
 
     @app.post("/encrypt")
@@ -872,7 +1001,11 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 report_json_path = Path(result.report_json_path)
                 report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
                 last_audit = _extract_last_audit_payload(report_payload, result.run_id)
-                session["last_audit"] = last_audit
+                history = _audit_history_from_session()
+                history.append(last_audit)
+                if len(history) > 5:
+                    history = history[-5:]
+                session["audit_history"] = history
 
                 if not result.encrypted_artifact_paths:
                     raise ValueError("No encrypted artifact was generated")
@@ -894,13 +1027,10 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                     zf.writestr(report_name, report_html_bytes)
                 zip_buffer.seek(0)
 
-                return send_file(
-                    zip_buffer,
-                    mimetype="application/zip",
-                    as_attachment=True,
-                    download_name=f"cryptoaudit_{result.run_id}.zip",
-                    max_age=0,
-                )
+                download_path = _download_path(result.run_id)
+                download_path.write_bytes(zip_buffer.getvalue())
+
+                return redirect(url_for("result_page", run_id=result.run_id))
 
         except Exception as exc:
             flash(str(exc), "error")
@@ -1017,8 +1147,4 @@ def run_web_interface(open_browser: bool = True) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(run_web_interface())
-
-
-
-
 

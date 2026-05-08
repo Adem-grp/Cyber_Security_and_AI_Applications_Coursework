@@ -1,6 +1,6 @@
 # CryptoAudit Project Documentation (Step-by-Step)
 
-Date updated: 2026-04-20
+Date updated: 2026-05-09
 Repository/workspace: `C:\Users\USER\PycharmProjects\CyberSecurityAIApplications`
 
 ## Checklist
@@ -165,10 +165,6 @@ A secure website-style interface was implemented while preserving core functiona
 - Encrypt endpoint (`/encrypt`) using existing core pipeline
 - Decrypt endpoint (`/decrypt`) using existing decrypt pipeline
 
-
-
-
-
 ## 3) Files Added/Updated
 
 ### Added
@@ -321,6 +317,7 @@ This section appends the latest work without removing earlier milestones.
 - Plain algorithm names are shown in the UI (removed inline `(recommended)` / `(deprecated)` suffixes from selection labels).
 - Clarified behavior: one algorithm is applied per encryption run; multi-run comparison is done by separate runs.
 - Legacy 3DES remains available behind explicit confirmation.
+- Encryption heading changed from 'Encrypt + Audit' to 'Encrypt' to avoid confusion with the dedicated Audit page.
 
 ### Milestone I - Audit page changed from static text to real run data
 
@@ -338,20 +335,40 @@ This section appends the latest work without removing earlier milestones.
 - Decrypt warning handling was updated to include standards-cited context in web responses.
 - Avalanche warning text in `cryptoaudit/backend/core.py` (`run_audit`) was expanded to explicitly explain short-input statistical limitations.
 
-### Milestone K - Web output handling hardened (download-first, no persistent web outputs)
+### Milestone K - Web output handling hardened (result page + download-first)
 
-- Web encryption/decryption routes now use temporary directories for intermediate artifacts instead of persistent `outputs_web` behavior.
-- `/encrypt` now returns an in-memory ZIP download containing:
+- Web encryption route now redirects to a dedicated result page (/app/result/<run_id>) after each successful encryption run.
+- Result page displays an inline audit summary table with algorithm name, colour-coded verdict badge, and key finding.
+- A "Download Results (ZIP)" button on the result page serves an in-memory ZIP archive containing:
   - encrypted artifact JSON
-  - HTML report
-- `/decrypt` now returns recovered bytes as an in-memory binary download (`application/octet-stream`).
-- Decrypt compatibility warnings are returned via `X-CryptoAudit-Warning` response header when present.
-- Intermediate files are read into memory, then deleted from disk before response completion.
+  - HTML audit report
+- ZIP is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with a 24-hour retention window.
+- /decrypt still returns recovered bytes as an in-memory binary download (application/octet-stream).
+- Decrypt compatibility warnings are returned via X-CryptoAudit-Warning response header when present.
+- Intermediate files are read into memory and deleted from disk before response completion.
 
 ### Milestone L - Test and smoke-run hygiene improvements
 
 - Updated web tests in `tests/test_web_app.py` to validate current download-first behavior and warning header semantics.
 - `smoke_test.py` output handling was updated to use `tempfile.TemporaryDirectory()` so ad-hoc smoke artifacts do not pollute project-root output folders.
+
+### Milestone M - Audit history (up to 5 runs)
+
+- Changed session-backed audit storage from single last_audit entry to audit_history list in cryptoaudit/frontend/web.py.
+- Stores up to 5 most recent encryption run results, oldest removed when limit is exceeded.
+- Audit page renders all history entries as collapsible sections, most recent first.
+- Each section header shows run ID and timestamp.
+- Each expanded entry shows full audit table plus a Download ZIP button for that specific run.
+- History persists across server restarts via session cookie — intentional behaviour for a local single-user tool.
+- Empty state message retained: "No audit data yet. Run an encryption first."
+
+### Milestone N - UX polish and download safety
+
+- Added beforeunload JavaScript warning on the result page: shown only if user attempts to navigate away before clicking Download Results.
+- Warning message: "You have not downloaded your encrypted results yet. If you leave this page the download link may expire."
+- Warning is suppressed once Download Results is clicked (downloaded flag set to true).
+- Temp file retention extended from 1 hour to 24 hours to reduce likelihood of expiry during normal use.
+- Raw text and file upload input sections on the encrypt page are now shown/hidden dynamically via JavaScript based on the selected radio button, reducing visual clutter.
 
 ### Recent verification evidence (targeted)
 
@@ -368,4 +385,3 @@ python -c "import main; cfg=main.AppConfig(); v=main.run_audit(main.ALGO_AES_GCM
 ```
 
 - Note: a full `tests/test_main.py` run in this session encountered an existing long-running interface-launch path unrelated to these milestone updates.
-

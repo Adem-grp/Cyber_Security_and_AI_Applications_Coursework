@@ -119,11 +119,20 @@ python main.py --text "demo" --config sample_config.json --password-env CRYPTOAU
 
 ## Outputs
 
-For each run, the output directory contains:
+For each encryption run, after the pipeline completes you are directed to a result page showing:
+- An inline audit summary with verdict (PASS/WARN/FAIL)
+- A "Download Results (ZIP)" button
 
-- One encrypted artifact per algorithm: `*_algorithm.enc.json`
-- One machine-readable report: `*_report.json`
-- One human-readable report: `*_report.html`
+The ZIP archive contains:
+- One encrypted artifact: *_algorithm.enc.json
+- One HTML audit report: *_report.html
+
+For CLI runs, the output directory contains:
+- One encrypted artifact per algorithm: *_algorithm.enc.json
+- One machine-readable report: *_report.json
+- One human-readable report: *_report.html
+
+The Audit page retains the last 5 encryption run results across sessions, each independently downloadable.
 
 ## Smoke Test Harness
 
@@ -136,4 +145,3 @@ python smoke_test.py
 ```powershell
 python -m unittest discover -s tests -v
 ```
-

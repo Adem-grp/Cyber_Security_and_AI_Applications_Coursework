@@ -39,6 +39,29 @@ class TestWebInterface(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/welcome", response.location)
 
+    def test_start_redirects_to_app_when_csrf_valid(self):
+        csrf = self._csrf_token_for("/welcome")
+        response = self.client.post(
+            "/start",
+            data={"csrf_token": csrf},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/app", response.location)
+
+    def test_start_invalid_csrf_redirects_back_to_welcome(self):
+        self.client.get("/welcome")
+        response = self.client.post(
+            "/start",
+            data={"csrf_token": "invalid-token"},
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Welcome to CryptoAudit", response.data)
+        self.assertIn(b"Invalid CSRF token", response.data)
+
     def test_encrypt_page_uses_plain_algorithm_labels(self):
         response = self.client.get("/app/encrypt")
         self.assertEqual(response.status_code, 200)
@@ -138,14 +161,24 @@ class TestWebInterface(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.mimetype, "application/zip")
-        self.assertIn("cryptoaudit_run-123.zip", response.headers.get("Content-Disposition", ""))
-        self.assertGreater(len(response.data), 0)
+        self.assertIn(b"Download Results (ZIP)", response.data)
+        self.assertIn(b"run-123", response.data)
+        self.assertIn(b"2026-04-18T12:00:00Z", response.data)
         mock_execute_pipeline.assert_called_once()
 
         with self.client.session_transaction() as sess:
-            self.assertIn("last_audit", sess)
-            self.assertEqual(sess["last_audit"]["run_id"], "run-123")
+            self.assertIn("audit_history", sess)
+            self.assertEqual(sess["audit_history"][0]["run_id"], "run-123")
+
+        download_path = Path(tempfile.gettempdir()) / "cryptoaudit_downloads" / "cryptoaudit_run-123.zip"
+        self.assertTrue(download_path.exists())
+
+        download_response = self.client.get("/app/download/run-123", follow_redirects=False)
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response.mimetype, "application/zip")
+        self.assertIn("cryptoaudit_run-123.zip", download_response.headers.get("Content-Disposition", ""))
+        self.assertGreater(len(download_response.data), 0)
+        self.assertFalse(download_path.exists())
 
     @mock.patch("cryptoaudit.frontend.web.execute_manual_decrypt_pipeline")
     def test_decrypt_warning_is_standards_cited(self, mock_manual_decrypt):
@@ -242,6 +275,4 @@ class TestWebInterface(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
-
 
