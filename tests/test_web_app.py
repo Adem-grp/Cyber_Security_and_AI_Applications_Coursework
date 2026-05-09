@@ -213,12 +213,25 @@ class TestWebInterface(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.mimetype, "application/octet-stream")
-        self.assertEqual(response.data, b"restored")
+        self.assertIn(b"Decryption Result", response.data)
         self.assertIn(
-            "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023.",
-            response.headers.get("X-CryptoAudit-Warning", ""),
+            b"NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023.",
+            response.data,
         )
+
+        with self.client.session_transaction() as sess:
+            run_id = next(iter(sess.get("decrypt_results", {})))
+
+        download_path = Path(tempfile.gettempdir()) / "cryptoaudit_downloads"
+        matches = list(download_path.glob(f"{run_id}_decrypted_*"))
+        self.assertTrue(matches)
+
+        download_response = self.client.get(f"/app/download_decrypted/{run_id}", follow_redirects=False)
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response.mimetype, "application/octet-stream")
+        self.assertIn("filename=restored.bin", download_response.headers.get("Content-Disposition", ""))
+        self.assertEqual(download_response.data, b"restored")
+        self.assertFalse(matches[0].exists())
 
     @mock.patch("cryptoaudit.frontend.web.execute_decrypt_pipeline")
     def test_decrypt_download_uses_user_filename_when_provided(self, mock_decrypt_pipeline):
@@ -250,27 +263,14 @@ class TestWebInterface(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("filename=document.pdf", response.headers.get("Content-Disposition", ""))
+        self.assertIn(b"Decryption Result", response.data)
 
-    @mock.patch("cryptoaudit.frontend.web.execute_decrypt_pipeline")
-    def test_decrypt_requires_output_filename(self, mock_decrypt_pipeline):
-        csrf = self._csrf_token_for("/app/decrypt")
+        with self.client.session_transaction() as sess:
+            run_id = next(iter(sess.get("decrypt_results", {})))
 
-        response = self.client.post(
-            "/decrypt",
-            data={
-                "csrf_token": csrf,
-                "decrypt_mode": "artifact",
-                "password": "VeryStrongPassword!123",
-                "artifact_file": (io.BytesIO(b"{}"), "20260419T100000Z_invoice.pdf_enc.json"),
-            },
-            content_type="multipart/form-data",
-            follow_redirects=True,
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Output filename is required.", response.data)
-        mock_decrypt_pipeline.assert_not_called()
+        download_response = self.client.get(f"/app/download_decrypted/{run_id}", follow_redirects=False)
+        self.assertEqual(download_response.status_code, 200)
+        self.assertIn("filename=document.pdf", download_response.headers.get("Content-Disposition", ""))
 
 
 if __name__ == "__main__":

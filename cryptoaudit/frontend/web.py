@@ -9,7 +9,7 @@ import threading
 import time
 import webbrowser
 import zipfile
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -605,6 +605,36 @@ RESULT_PAGE_BODY = """
 """
 
 
+DECRYPT_RESULT_PAGE_BODY = """
+<h2>Decryption Result</h2>
+<p class="muted">All data is processed locally. The decrypted file is held temporarily and will be removed after download or within 24 hours.</p>
+<p><strong>Run ID:</strong> <code>{{ run_id }}</code> | <strong>Timestamp:</strong> <code>{{ timestamp }}</code></p>
+<p><strong>Output filename:</strong> <code>{{ output_filename }}</code></p>
+{% if warning %}
+  <div class="flash-warn">{{ warning }}</div>
+{% endif %}
+<div class="actions">
+  <a href="{{ url_for('download_decrypted', run_id=run_id) }}"><button id="downloadDecryptedBtn">Download Decrypted File</button></a>
+</div>
+<script>
+(function () {
+  let downloaded = false;
+  const downloadButton = document.getElementById("downloadDecryptedBtn");
+  if (downloadButton) {
+    downloadButton.addEventListener("click", function () {
+      downloaded = true;
+    });
+  }
+  window.onbeforeunload = function () {
+    if (!downloaded) {
+      return "You have not downloaded your decrypted file yet. If you leave this page the download link may expire.";
+    }
+  };
+})();
+</script>
+"""
+
+
 def _render_page(body_template: str, **context: Any) -> str:
     body_html = render_template_string(body_template, **context)
     return render_template_string(BASE_TEMPLATE, body=body_html)
@@ -668,6 +698,15 @@ def _download_dir() -> Path:
 
 def _download_path(run_id: str) -> Path:
     return _download_dir() / f"cryptoaudit_{run_id}.zip"
+
+
+def _decrypt_download_path(run_id: str, output_filename: str) -> Path:
+    return _download_dir() / f"{run_id}_decrypted_{output_filename}"
+
+
+def _find_decrypt_download(run_id: str) -> Optional[Path]:
+    matches = sorted(_download_dir().glob(f"{run_id}_decrypted_*"))
+    return matches[0] if matches else None
 
 
 def _cleanup_downloads(max_age_seconds: int = 86400) -> None:
@@ -934,6 +973,22 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             audit_summary=_to_audit_summary(entry),
         )
 
+    @app.get("/app/decrypt_result/<run_id>")
+    def decrypt_result_page(run_id: str) -> Any:
+        results = session.get("decrypt_results")
+        entry = results.get(run_id) if isinstance(results, dict) else None
+        if not entry:
+            flash("Decryption result not found. Please run decryption again.", "error")
+            return redirect(url_for("decrypt_page"))
+        return _render_app_page(
+            body_template=DECRYPT_RESULT_PAGE_BODY,
+            active_page="decrypt",
+            run_id=run_id,
+            timestamp=entry.get("timestamp", ""),
+            output_filename=entry.get("output_filename", ""),
+            warning=entry.get("warning"),
+        )
+
     @app.get("/app/download/<run_id>")
     def download_result(run_id: str) -> Any:
         zip_path = _download_path(run_id)
@@ -947,6 +1002,26 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             mimetype="application/zip",
             as_attachment=True,
             download_name=f"cryptoaudit_{run_id}.zip",
+            max_age=0,
+        )
+
+    @app.get("/app/download_decrypted/<run_id>")
+    def download_decrypted(run_id: str) -> Any:
+        file_path = _find_decrypt_download(run_id)
+        if not file_path or not file_path.exists():
+            flash("Download expired or already downloaded. Please run decryption again.", "error")
+            return redirect(url_for("decrypt_page"))
+        decrypted_bytes = file_path.read_bytes()
+        file_path.unlink(missing_ok=True)
+        output_filename = file_path.name.split("_decrypted_", 1)[-1]
+        results = session.get("decrypt_results")
+        if isinstance(results, dict) and run_id in results:
+            output_filename = results[run_id].get("output_filename", output_filename) or output_filename
+        return send_file(
+            io.BytesIO(decrypted_bytes),
+            mimetype="application/octet-stream",
+            as_attachment=True,
+            download_name=output_filename,
             max_age=0,
         )
 
@@ -1062,6 +1137,10 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 return redirect(url_for("decrypt_page"))
             decrypt_mode = (request.form.get("decrypt_mode", "artifact") or "artifact").strip().lower()
 
+            run_time = datetime.utcnow()
+            run_id = run_time.strftime("%Y%m%dT%H%M%SZ")
+            timestamp = run_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
             with tempfile.TemporaryDirectory(prefix="cryptoaudit_web_decrypt_") as run_tmp:
                 output_dir = run_tmp
                 if decrypt_mode == "manual":
@@ -1106,21 +1185,27 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
                 decrypted_bytes = decrypted_path.read_bytes()
                 decrypted_path.unlink(missing_ok=True)
 
-                response = send_file(
-                    io.BytesIO(decrypted_bytes),
-                    mimetype="application/octet-stream",
-                    as_attachment=True,
-                    download_name=output_file_name,
-                    max_age=0,
-                )
+                download_path = _decrypt_download_path(run_id, output_file_name)
+                download_path.write_bytes(decrypted_bytes)
 
+                warning_text = None
                 if result.warning:
-                    response.headers["X-CryptoAudit-Warning"] = (
+                    warning_text = (
                         "NIST SP 800-131A Rev.2 disallows 3DES for new applications after 2023. "
                         + result.warning
                     )
 
-                return response
+                results = session.get("decrypt_results")
+                if not isinstance(results, dict):
+                    results = {}
+                results[run_id] = {
+                    "timestamp": timestamp,
+                    "output_filename": output_file_name,
+                    "warning": warning_text,
+                }
+                session["decrypt_results"] = results
+
+                return redirect(url_for("decrypt_result_page", run_id=run_id))
 
         except Exception as exc:
             flash(str(exc), "error")
