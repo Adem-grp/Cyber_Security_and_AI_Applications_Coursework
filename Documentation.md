@@ -1,6 +1,6 @@
 # CryptoAudit Project Documentation (Step-by-Step)
 
-Date updated: 2026-05-09
+Date updated: 2026-05-10
 Repository/workspace: `C:\Users\USER\PycharmProjects\CyberSecurityAIApplications`
 
 ## Checklist
@@ -256,6 +256,7 @@ Below are the key user prompts that drove scope changes and implementation decis
 - Password handling with in-memory buffers and wipe best-effort
 - No plaintext/password/key exposure in reports
 - Web session baseline with CSRF token protection
+- Dedicated result pages for both encryption and decryption with browser navigation warnings to prevent accidental loss of download access
 
 ### Trade-offs acknowledged
 
@@ -369,6 +370,18 @@ This section appends the latest work without removing earlier milestones.
 - Warning is suppressed once Download Results is clicked (downloaded flag set to true).
 - Temp file retention extended from 1 hour to 24 hours to reduce likelihood of expiry during normal use.
 - Raw text and file upload input sections on the encrypt page are now shown/hidden dynamically via JavaScript based on the selected radio button, reducing visual clutter.
+
+### Milestone O - Decryption result page
+
+- /decrypt POST route now redirects to a dedicated result page (/app/decrypt_result/<run_id>) instead of immediately returning the file as a download.
+- Decrypt result page displays:
+  - Run ID and timestamp
+  - Output filename specified by the user
+  - Compatibility warning banner if applicable (citing NIST SP 800-131A Rev.2 for 3DES)
+  - Download Decrypted File button serving the recovered file via /app/download_decrypted/<run_id>
+- Decrypted file is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with 24-hour retention, consistent with encryption download retention.
+- beforeunload JavaScript warning added, shown if user navigates away before clicking download.
+- Applied to both CryptoAudit artifact mode and External/Manual Parameters mode.
 
 ### Recent verification evidence (targeted)
 

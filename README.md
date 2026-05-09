@@ -127,6 +127,11 @@ The ZIP archive contains:
 - One encrypted artifact: *_algorithm.enc.json
 - One HTML audit report: *_report.html
 
+For decryption runs, after the pipeline completes you are directed to a result page showing:
+- Output filename and any compatibility warnings
+- A "Download Decrypted File" button
+- A browser warning if you navigate away before downloading
+
 For CLI runs, the output directory contains:
 - One encrypted artifact per algorithm: *_algorithm.enc.json
 - One machine-readable report: *_report.json
