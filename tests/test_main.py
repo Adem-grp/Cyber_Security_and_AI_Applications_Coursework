@@ -24,7 +24,10 @@ class TestCliParsing(unittest.TestCase):
 
     def test_main_without_args_launches_interface(self):
         with mock.patch.object(sys, "argv", ["main.py"]):
-            with mock.patch("main.launch_interface", return_value=0) as mocked_launch:
+            with mock.patch(
+                "cryptoaudit.backend.core.launch_interface",
+                return_value=0,
+            ) as mocked_launch:
                 rc = main.main()
         self.assertEqual(rc, 0)
         mocked_launch.assert_called_once()
@@ -303,4 +306,3 @@ class TestIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

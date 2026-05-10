@@ -168,16 +168,18 @@ A secure website-style interface was implemented while preserving core functiona
 ## 3) Files Added/Updated
 
 ### Added
-
-- `web_app.py` - secure local web interface
-- `tests/test_web_app.py` - web behavior tests (encrypt warning paths)
-- `Documentation.md` - this project log documentation
+- cryptoaudit/backend/core.py - cryptographic engine
+- cryptoaudit/frontend/web.py - secure local web interface with result pages for encryption and decryption, audit history, and download handling
+- prototype/ui_tkinter.py - initial Tkinter desktop prototype (early draft)
+- prototype/README_prototype.md - setup and run instructions for the prototype
+- tests/test_web_app.py - web behaviour tests
+- Documentation.md - this project log
 
 ### Updated
-
-- `main.py` - interface launch behavior now web-first with Tkinter fallback
-- `requirements.txt` - added `Flask==3.0.3`
-- `README.md` - updated run modes and web security notes
+- main.py - entry point, launches web interface with Tkinter fallback
+- requirements.txt - all project dependencies
+- README.md - run instructions and project structure
+- .gitignore - excludes .cryptoaudit_web/, outputs/, __pycache__/
 
 ---
 
@@ -287,24 +289,39 @@ Below are the key user prompts that drove scope changes and implementation decis
 
 ---
 
-## 9) Quick Run Guide (Current)
+## 9) Quick Run Guide
 
-```powershell
-python -m pip install -r requirements.txt
+### Final Product (Web Interface — Recommended)
+pip install -r requirements.txt
 python main.py
-```
+Then open http://127.0.0.1:8765 in your browser.
 
-Optional direct web launcher:
+### Initial Prototype (Tkinter Desktop)
+pip install -r requirements.txt
+python prototype/ui_tkinter.py
 
-```powershell
-python web_app.py
-```
+### CLI Mode (Optional)
+Set password as environment variable:
+$env:CRYPTOAUDIT_PASSWORD="YourPassword"
 
-Optional full tests:
+Encrypt text:
+python main.py --text "your text" 
+  --password-env CRYPTOAUDIT_PASSWORD 
+  --output-dir outputs
 
-```powershell
-python -u -m unittest discover -s tests -v
-```
+Encrypt file:
+python main.py --file "path/to/file.pdf"
+  --password-env CRYPTOAUDIT_PASSWORD
+  --output-dir outputs
+
+Decrypt artifact:
+python main.py --mode decrypt 
+  --artifact "outputs/run_id_aes-256-gcm.enc.json"
+  --password-env CRYPTOAUDIT_PASSWORD
+  --output-dir outputs
+
+### Run Tests
+python -m unittest discover -s tests -v
 
 ---
 

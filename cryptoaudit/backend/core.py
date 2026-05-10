@@ -972,19 +972,20 @@ def execute_manual_decrypt_pipeline(
 
 def launch_interface() -> int:
     """Launch the preferred local interface (web first, desktop fallback)."""
-    project_root = Path(__file__).resolve().parents[2]
-    web_path = project_root / "web_app.py"
-    if web_path.exists():
-        completed = subprocess.run([sys.executable, str(web_path)], check=False)
-        return int(completed.returncode)
+    try:
+        from cryptoaudit.frontend.web import run_web_interface
 
-    ui_path = project_root / "ui_tkinter.py"
-    if not ui_path.exists():
-        print(f"Error: no interface launcher found (checked {web_path} and {ui_path})", file=sys.stderr)
+        return int(run_web_interface())
+    except Exception as exc:
+        print(f"Web interface launch failed: {exc}", file=sys.stderr)
+
+    try:
+        from prototype.ui_tkinter import main as tk_main
+
+        return int(tk_main())
+    except Exception as exc:
+        print(f"Error: no interface launcher found ({exc})", file=sys.stderr)
         return 1
-
-    completed = subprocess.run([sys.executable, str(ui_path)], check=False)
-    return int(completed.returncode)
 
 
 def main() -> int:
@@ -1043,6 +1044,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

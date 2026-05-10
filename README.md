@@ -25,6 +25,20 @@ CryptoAudit is a local-only cryptographic benchmarking and audit tool with CLI, 
 python -m pip install -r requirements.txt
 ```
 
+## Project Structure
+
+├── main.py                      # Entry point
+├── requirements.txt             # Dependencies
+├── sample_config.json           # Example config
+├── cryptoaudit/                 # Final product
+│   ├── backend/core.py          # Crypto engine
+│   └── frontend/web.py          # Web interface
+├── prototype/                   # Initial prototype
+│   └── ui_tkinter.py            # Tkinter desktop app
+├── tests/                       # Test suite
+├── smoke_test.py                # Smoke tests
+└── Documentation.md             # Project log
+
 ## Secure Local Web Interface (Recommended)
 
 Run:
@@ -61,8 +75,10 @@ Notes:
 - You can still run the Tkinter desktop UI directly:
 
 ```powershell
-python ui_tkinter.py
+python prototype/ui_tkinter.py
 ```
+
+The initial Tkinter prototype is in the prototype/ folder. See prototype/README_prototype.md for details.
 
 ## CLI Interface (Optional)
 

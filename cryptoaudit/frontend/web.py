@@ -48,6 +48,8 @@ from cryptoaudit.backend.core import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DATA_DIR = PROJECT_ROOT / ".cryptoaudit_web"
 
 BASE_TEMPLATE = """
 <!doctype html>
@@ -884,7 +886,7 @@ def _save_upload_limited(app: Flask, field_name: str, max_size: int, suffix: str
 def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
     app = Flask(__name__)
     app.config.update(
-        CRYPTOAUDIT_DATA_DIR=os.environ.get("CRYPTOAUDIT_WEB_DATA_DIR", ".cryptoaudit_web"),
+        CRYPTOAUDIT_DATA_DIR=os.environ.get("CRYPTOAUDIT_WEB_DATA_DIR", str(DEFAULT_DATA_DIR)),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=False,

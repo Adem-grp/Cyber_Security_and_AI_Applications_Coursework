@@ -5,19 +5,18 @@ import json
 import io
 from pathlib import Path
 from unittest import mock
+from cryptoaudit.frontend.web import create_app
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-import web_app
 
 
 class TestWebInterface(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.data_dir = Path(self.temp_dir.name) / "web_data"
-        self.app = web_app.create_app(
+        self.app = create_app(
             {
                 "TESTING": True,
                 "CRYPTOAUDIT_DATA_DIR": str(self.data_dir),

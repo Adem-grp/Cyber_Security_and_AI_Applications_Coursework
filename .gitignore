@@ -1,7 +1,8 @@
 # Auto-generated local data
 .cryptoaudit_web/
-*.pyc
 __pycache__/
+*.pyc
+*.pyo
 outputs/
 outputs_web/
-
+outputs_smoke/
