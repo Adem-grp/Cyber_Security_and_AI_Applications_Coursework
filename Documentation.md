@@ -112,7 +112,7 @@ Issue observed: running `python main.py` without args produced CLI argument erro
 
 - `main.py` now launches interface mode when no CLI args are provided.
 - Later improved to prefer web interface launcher, with Tkinter fallback:
-  - First try `web_app.py`
+  - First try `cryptoaudit/frontend/web.py`
   - fallback to `ui_tkinter.py`
 
 ---
@@ -212,38 +212,38 @@ python -u -m unittest discover -s tests -v
 
 Below are the key user prompts that drove scope changes and implementation decisions.
 
-1. **System design specification provided**
-   - Required local-only architecture, validation, KDF, multi-algorithm encryption, audit, benchmarking, report generation, and secure controls.
+1. **System design specification**
+   - Defined local-only architecture, input validation, key derivation, multi-algorithm encryption, audit layer, benchmarking, report generation, and security controls.
 
-2. **"Comment near each function" request**
-   - Led to explicit intention-revealing function docstrings/comments across modules.
+2. **Function documentation request**
+   - Led to intention-revealing docstrings and inline comments across all modules.
 
-3. **"Can we create an application interface"**
-   - Triggered UI effort beyond pure CLI.
+3. **Application interface request**
+   - Initiated development of a graphical interface beyond the CLI.
 
-4. **"Find best option and implement interfaces securely"**
-   - Drove security-first UI design decisions and stronger safeguards.
+4. **Secure interface implementation**
+   - Drove security-first design decisions for the interface layer.
 
-5. **"Run button and warnings should work"**
-   - Added confirmation and clear success/error messaging.
+5. **UI behaviour and warning messages**
+   - Added confirmation dialogs and clear success and error messaging.
 
-6. **CLI error report: `--file` or `--text` required**
-   - Prompted no-arg launch behavior to open interface instead of strict CLI requirement.
+6. **CLI entry behaviour correction**
+   - Resolved no-argument launch behaviour to open the interface instead of producing CLI errors.
 
-7. **"We are not doing CLI remember"**
-   - Shifted default usage toward interface-first operation.
+7. **Interface-first operation**
+   - Shifted default launch behaviour to the web interface with desktop fallback.
 
-8. **"Add more algorithms" + better deprecation messaging**
-   - Added AES-192/AES-128 and improved 3DES warning confirmation UX.
+8. **Algorithm expansion and deprecation UX**
+   - Added AES-192-GCM and AES-128-GCM variants. Improved 3DES deprecation confirmation flow.
 
-9. **"Are advanced params necessary?" / simplify for users**
-   - Added recommended defaults and optional advanced section strategy.
+9. **Advanced settings simplification**
+   - Added recommended defaults and separated advanced controls from the primary interface flow.
 
-10. **"Turn into a secure website with text/drag-drop/file + login"**
-    - Resulted in `web_app.py`, local auth groundwork, and secure web interface implementation.
+10. **Web interface conversion**
+    - Directed conversion to a locally hosted Flask web application with text input, file upload, and drag-and-drop support.
 
-11. **"Include assignment constraints"**
-    - Reinforced documentation quality, methodology traceability, and viva-readiness focus.
+11. **Assignment scope alignment**
+    - Reinforced documentation quality, methodology traceability, and viva preparation focus.
 
 ---
 
