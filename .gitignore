@@ -6,3 +6,4 @@ __pycache__/
 outputs/
 outputs_web/
 outputs_smoke/
+.idea/
