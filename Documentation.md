@@ -244,8 +244,7 @@ A secure website-style interface was implemented while preserving core functiona
 - beforeunload JavaScript warning added, shown if user navigates away before clicking download.
 - Applied to both CryptoAudit artifact mode and External/Manual Parameters mode.
 
-### Run Tests
-python -m unittest discover -s tests -v
+
 
 ---
 
