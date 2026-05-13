@@ -1,3 +1,5 @@
+**Student:** Adem Garip | **Student ID:** 2549603 | **GitHub:** https://github.com/Adem-grp/Cyber_Security_and_AI_Applications_Coursework
+
 # CryptoAudit — Key Agent Prompts
 
 **Evidence of Agentic AI Co-Production Workflow**
