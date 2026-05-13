@@ -358,6 +358,7 @@ DECRYPT_BODY = """
   <div id="artifactSection">
     <label>Artifact JSON</label>
     <input type="file" name="artifact_file" id="artifactFile" accept=".json,application/json">
+    <div class="dropzone" id="artifactDropzone">Drag and drop your artifact JSON here, or use file chooser above.</div>
     <p class="muted">This mode reads algorithm, PBKDF2 iterations, salt, and nonce/IV from your artifact file.</p>
     <details>
       <summary><strong>Artifact Metadata Preview (local only)</strong></summary>
@@ -412,6 +413,7 @@ DECRYPT_BODY = """
   const manualSection = document.getElementById("manualSection");
   const artifactFile = document.getElementById("artifactFile");
   const artifactMeta = document.getElementById("artifactMeta");
+  const artifactDropzone = document.getElementById("artifactDropzone");
 
   function updateMode() {
     const selected = Array.from(modeInputs).find(x => x.checked)?.value || "artifact";
@@ -422,6 +424,37 @@ DECRYPT_BODY = """
 
   modeInputs.forEach((input) => input.addEventListener("change", updateMode));
   updateMode();
+
+  function setDragState(active) {
+    if (!artifactDropzone) {
+      return;
+    }
+    if (active) {
+      artifactDropzone.classList.add("dragover");
+    } else {
+      artifactDropzone.classList.remove("dragover");
+    }
+  }
+
+  if (artifactDropzone) {
+    artifactDropzone.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      setDragState(true);
+    });
+
+    artifactDropzone.addEventListener("dragleave", function () {
+      setDragState(false);
+    });
+
+    artifactDropzone.addEventListener("drop", function (event) {
+      event.preventDefault();
+      setDragState(false);
+      if (event.dataTransfer.files.length > 0) {
+        artifactFile.files = event.dataTransfer.files;
+        artifactFile.dispatchEvent(new Event("change"));
+      }
+    });
+  }
 
   artifactFile.addEventListener("change", function () {
     if (!artifactFile.files || artifactFile.files.length === 0) {
