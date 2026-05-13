@@ -19,6 +19,19 @@ CryptoAudit is a local-only cryptographic benchmarking and audit tool with CLI, 
 - `chacha20-poly1305` (recommended)
 - `3des-ofb` (compatibility option; warning shown in UI before run)
 
+## Blocked Algorithms
+
+The following algorithms are permanently blocked and 
+unavailable to users:
+
+- `des-cbc` — Single DES is fully broken; 56-bit key 
+  trivially brute-forced by modern hardware
+- `rc4` — Prohibited in TLS contexts by RFC 7465; 
+  has well-documented statistical biases
+
+These are enforced at the validation layer and cannot 
+be selected under any circumstances.
+
 ## Install
 
 ```powershell
@@ -27,6 +40,7 @@ python -m pip install -r requirements.txt
 
 ## Project Structure
 
+```
 ├── main.py                      # Entry point
 ├── requirements.txt             # Dependencies
 ├── sample_config.json           # Example config
@@ -38,6 +52,7 @@ python -m pip install -r requirements.txt
 ├── tests/                       # Test suite
 ├── smoke_test.py                # Smoke tests
 └── Documentation.md             # Project log
+```
 
 ## Secure Local Web Interface (Recommended)
 
@@ -68,7 +83,6 @@ Security behavior in web mode:
 Notes:
 
 - This app binds to localhost only (`127.0.0.1`) and is intended for local use.
-- Quota/tokenization/payment hooks are intentionally not implemented yet.
 
 ## Desktop Interface (Optional)
 

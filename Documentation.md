@@ -44,6 +44,12 @@ CryptoAudit was designed as a **local-only cryptographic benchmarking + audit to
 - `chacha20-poly1305`
 - `3des-ofb` (compatibility/deprecated-warning path)
 
+Blocked algorithms (unavailable to users):
+- `des-cbc` — deprecated; blocked for security 
+  policy compliance
+- `rc4` — deprecated; blocked for security 
+  policy compliance
+
 ### Security baseline
 
 - PBKDF2-HMAC-SHA256 key derivation with random 16-byte salt
@@ -152,7 +158,7 @@ The encryption pipeline already handled bytes, so support is format-agnostic.
 
 ---
 
-## Milestone G - Secure Local Web Interface (`web_app.py`)
+## Milestone G - Secure Local Web Interface (`cryptoaudit/frontend/web.py`)
 
 A secure website-style interface was implemented while preserving core functionality.
 
@@ -167,21 +173,104 @@ A secure website-style interface was implemented while preserving core functiona
 - Encrypt endpoint (`/encrypt`) using existing core pipeline
 - Decrypt endpoint (`/decrypt`) using existing decrypt pipeline
 
+## Milestone H - Web UX alignment for a genuine CryptoAudit workflow
+
+- Encryption algorithm selector was changed from multi-checkboxes to a single-selection flow in `cryptoaudit/frontend/web.py`.
+- Plain algorithm names are shown in the UI (removed inline `(recommended)` / `(deprecated)` suffixes from selection labels).
+- Clarified behavior: one algorithm is applied per encryption run; multi-run comparison is done by separate runs.
+- Legacy 3DES remains available behind explicit confirmation.
+- Encryption heading changed from 'Encrypt + Audit' to 'Encrypt' to avoid confusion with the dedicated Audit page.
+
+## Milestone I - Audit page changed from static text to real run data
+
+- Added session-backed audit persistence in web flow (`session["last_audit"]`) after successful encryption in `cryptoaudit/frontend/web.py`. Later updated in Milestone M to store audit_history list of up to 5 runs.
+- Stored minimal metadata only:
+  - `run_id`, timestamp
+  - per-algorithm verdict data, findings, recommendation, standards reference, avalanche %, average encryption ms, throughput MB/s
+- Updated Audit tab rendering to show a structured table with colour-coded verdict badges:
+  - PASS (green), WARN (amber), FAIL (red)
+- Added empty-state message: `No audit data yet. Run an encryption first.`
+
+## Milestone J - Standards-cited warning behavior improvements
+
+- Updated 3DES modal warning text to cite standards directly (NIST SP 800-131A Rev.2 and FIPS 140-3 transition guidance) in `cryptoaudit/frontend/web.py`.
+- Decrypt warning handling was updated to include standards-cited context in web responses.
+- Avalanche warning text in `cryptoaudit/backend/core.py` (`run_audit`) was expanded to explicitly explain short-input statistical limitations.
+
+## Milestone K - Web output handling hardened (result page + download-first)
+
+- Web encryption route now redirects to a dedicated result page (/app/result/<run_id>) after each successful encryption run.
+- Result page displays an inline audit summary table with algorithm name, colour-coded verdict badge, and key finding.
+- A "Download Results (ZIP)" button on the result page serves an in-memory ZIP archive containing:
+  - encrypted artifact JSON
+  - HTML audit report
+- ZIP is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with a 24-hour retention window.
+- /decrypt still returns recovered bytes as an in-memory binary download (application/octet-stream).
+- Decrypt compatibility warnings are returned via X-CryptoAudit-Warning response header when present.
+- Intermediate files are read into memory and deleted from disk before response completion.
+
+## Milestone L - Test and smoke-run hygiene improvements
+
+- Updated web tests in `tests/test_web_app.py` to validate current download-first behavior and warning header semantics.
+- `smoke_test.py` output handling was updated to use `tempfile.TemporaryDirectory()` so ad-hoc smoke artifacts do not pollute project-root output folders.
+
+## Milestone M - Audit history (up to 5 runs)
+
+- Changed session-backed audit storage from single last_audit entry to audit_history list in cryptoaudit/frontend/web.py.
+- Stores up to 5 most recent encryption run results, oldest removed when limit is exceeded.
+- Audit page renders all history entries as collapsible sections, most recent first.
+- Each section header shows run ID and timestamp.
+- Each expanded entry shows full audit table plus a Download ZIP button for that specific run.
+- History persists across server restarts via session cookie — intentional behaviour for a local single-user tool.
+- Empty state message retained: "No audit data yet. Run an encryption first."
+
+## Milestone N - UX polish and download safety
+
+- Added beforeunload JavaScript warning on the result page: shown only if user attempts to navigate away before clicking Download Results.
+- Warning message: "You have not downloaded your encrypted results yet. If you leave this page the download link may expire."
+- Warning is suppressed once Download Results is clicked (downloaded flag set to true).
+- Temp file retention extended from 1 hour to 24 hours to reduce likelihood of expiry during normal use.
+- Raw text and file upload input sections on the encrypt page are now shown/hidden dynamically via JavaScript based on the selected radio button, reducing visual clutter.
+
+## Milestone O - Decryption result page
+
+- /decrypt POST route now redirects to a dedicated result page (/app/decrypt_result/<run_id>) instead of immediately returning the file as a download.
+- Decrypt result page displays:
+  - Run ID and timestamp
+  - Output filename specified by the user
+  - Compatibility warning banner if applicable (citing NIST SP 800-131A Rev.2 for 3DES)
+  - Download Decrypted File button serving the recovered file via /app/download_decrypted/<run_id>
+- Decrypted file is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with 24-hour retention, consistent with encryption download retention.
+- beforeunload JavaScript warning added, shown if user navigates away before clicking download.
+- Applied to both CryptoAudit artifact mode and External/Manual Parameters mode.
+
+### Run Tests
+python -m unittest discover -s tests -v
+
+---
+
 ## 3) Files Added/Updated
 
 ### Added
-- cryptoaudit/backend/core.py - cryptographic engine
-- cryptoaudit/frontend/web.py - secure local web interface with result pages for encryption and decryption, audit history, and download handling
-- prototype/ui_tkinter.py - initial Tkinter desktop prototype (early draft)
-- prototype/README_prototype.md - setup and run instructions for the prototype
-- tests/test_web_app.py - web behaviour tests
-- Documentation.md - this project log
+- cryptoaudit/backend/core.py — cryptographic engine
+- cryptoaudit/frontend/web.py — secure local web 
+  interface with result pages, audit history, and 
+  download handling
+- prototype/ui_tkinter.py — initial Tkinter desktop 
+  prototype (early draft)
+- prototype/README_prototype.md — setup and run 
+  instructions for the prototype
+- tests/test_web_app.py — web behaviour tests
+- Documentation.md — this project log
 
 ### Updated
-- main.py - entry point, launches web interface with Tkinter fallback
-- requirements.txt - all project dependencies
-- README.md - run instructions and project structure
-- .gitignore - excludes .cryptoaudit_web/, outputs/, __pycache__/
+- main.py — entry point, launches web interface 
+  with Tkinter fallback
+- requirements.txt — all project dependencies
+- README.md — run instructions, project structure, 
+  blocked algorithms
+- .gitignore — excludes .cryptoaudit_web/, outputs/, 
+  __pycache__/
 
 ---
 
@@ -217,8 +306,11 @@ Below are the key user prompts that drove scope changes and implementation decis
 1. **System design specification**
    - Defined local-only architecture, input validation, key derivation, multi-algorithm encryption, audit layer, benchmarking, report generation, and security controls.
 
-2. **Function documentation request**
-   - Led to intention-revealing docstrings and inline comments across all modules.
+2. **Web interface conversion request**
+   - Directed conversion of the desktop prototype 
+     into a secure locally hosted web application 
+     with text input, drag-and-drop, and file upload 
+     support, with security as the primary concern.
 
 3. **Application interface request**
    - Initiated development of a graphical interface beyond the CLI.
@@ -241,10 +333,7 @@ Below are the key user prompts that drove scope changes and implementation decis
 9. **Advanced settings simplification**
    - Added recommended defaults and separated advanced controls from the primary interface flow.
 
-10. **Web interface conversion**
-    - Directed conversion to a locally hosted Flask web application with text input, file upload, and drag-and-drop support.
-
-11. **Assignment scope alignment**
+10. **Assignment scope alignment**
     - Reinforced documentation quality, methodology traceability, and viva preparation focus.
 
 ---
@@ -274,7 +363,6 @@ Below are the key user prompts that drove scope changes and implementation decis
 - No remote cloud deployment hardening yet (this is local-first)
 - No production WSGI server/reverse proxy setup in this coursework phase
 - No key management service/HSM integration
-- No payment/quota/token pipeline implementation yet
 
 ---
 
@@ -284,10 +372,6 @@ Below are the key user prompts that drove scope changes and implementation decis
    - Include assets, adversaries, trust boundaries, abuse cases, and mitigations.
 2. **Web hardening pass (if moving beyond local demo)**
    - Add rate limiting, lockout policy, structured audit logging, and secure deployment profile.
-3. **Feature roadmap alignment**
-   - Optional: add controlled API mode, usage quotas, and billing only after security review.
-4. **Viva preparation**
-   - Prepare a concise walkthrough of: requirements -> design decisions -> test evidence -> trade-offs.
 
 ---
 
@@ -324,96 +408,3 @@ python main.py --mode decrypt
 
 ### Run Tests
 python -m unittest discover -s tests -v
-
----
-
-## 10) Recent Milestones Added (Post-March Updates)
-
-This section appends the latest work without removing earlier milestones.
-
-### Milestone H - Web UX alignment for a genuine CryptoAudit workflow
-
-- Encryption algorithm selector was changed from multi-checkboxes to a single-selection flow in `cryptoaudit/frontend/web.py`.
-- Plain algorithm names are shown in the UI (removed inline `(recommended)` / `(deprecated)` suffixes from selection labels).
-- Clarified behavior: one algorithm is applied per encryption run; multi-run comparison is done by separate runs.
-- Legacy 3DES remains available behind explicit confirmation.
-- Encryption heading changed from 'Encrypt + Audit' to 'Encrypt' to avoid confusion with the dedicated Audit page.
-
-### Milestone I - Audit page changed from static text to real run data
-
-- Added session-backed audit persistence in web flow (`session["last_audit"]`) after successful encryption in `cryptoaudit/frontend/web.py`.
-- Stored minimal metadata only:
-  - `run_id`, timestamp
-  - per-algorithm verdict data, findings, recommendation, standards reference, avalanche %, average encryption ms, throughput MB/s
-- Updated Audit tab rendering to show a structured table with colour-coded verdict badges:
-  - PASS (green), WARN (amber), FAIL (red)
-- Added empty-state message: `No audit data yet. Run an encryption first.`
-
-### Milestone J - Standards-cited warning behavior improvements
-
-- Updated 3DES modal warning text to cite standards directly (NIST SP 800-131A Rev.2 and FIPS 140-3 transition guidance) in `cryptoaudit/frontend/web.py`.
-- Decrypt warning handling was updated to include standards-cited context in web responses.
-- Avalanche warning text in `cryptoaudit/backend/core.py` (`run_audit`) was expanded to explicitly explain short-input statistical limitations.
-
-### Milestone K - Web output handling hardened (result page + download-first)
-
-- Web encryption route now redirects to a dedicated result page (/app/result/<run_id>) after each successful encryption run.
-- Result page displays an inline audit summary table with algorithm name, colour-coded verdict badge, and key finding.
-- A "Download Results (ZIP)" button on the result page serves an in-memory ZIP archive containing:
-  - encrypted artifact JSON
-  - HTML audit report
-- ZIP is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with a 24-hour retention window.
-- /decrypt still returns recovered bytes as an in-memory binary download (application/octet-stream).
-- Decrypt compatibility warnings are returned via X-CryptoAudit-Warning response header when present.
-- Intermediate files are read into memory and deleted from disk before response completion.
-
-### Milestone L - Test and smoke-run hygiene improvements
-
-- Updated web tests in `tests/test_web_app.py` to validate current download-first behavior and warning header semantics.
-- `smoke_test.py` output handling was updated to use `tempfile.TemporaryDirectory()` so ad-hoc smoke artifacts do not pollute project-root output folders.
-
-### Milestone M - Audit history (up to 5 runs)
-
-- Changed session-backed audit storage from single last_audit entry to audit_history list in cryptoaudit/frontend/web.py.
-- Stores up to 5 most recent encryption run results, oldest removed when limit is exceeded.
-- Audit page renders all history entries as collapsible sections, most recent first.
-- Each section header shows run ID and timestamp.
-- Each expanded entry shows full audit table plus a Download ZIP button for that specific run.
-- History persists across server restarts via session cookie — intentional behaviour for a local single-user tool.
-- Empty state message retained: "No audit data yet. Run an encryption first."
-
-### Milestone N - UX polish and download safety
-
-- Added beforeunload JavaScript warning on the result page: shown only if user attempts to navigate away before clicking Download Results.
-- Warning message: "You have not downloaded your encrypted results yet. If you leave this page the download link may expire."
-- Warning is suppressed once Download Results is clicked (downloaded flag set to true).
-- Temp file retention extended from 1 hour to 24 hours to reduce likelihood of expiry during normal use.
-- Raw text and file upload input sections on the encrypt page are now shown/hidden dynamically via JavaScript based on the selected radio button, reducing visual clutter.
-
-### Milestone O - Decryption result page
-
-- /decrypt POST route now redirects to a dedicated result page (/app/decrypt_result/<run_id>) instead of immediately returning the file as a download.
-- Decrypt result page displays:
-  - Run ID and timestamp
-  - Output filename specified by the user
-  - Compatibility warning banner if applicable (citing NIST SP 800-131A Rev.2 for 3DES)
-  - Download Decrypted File button serving the recovered file via /app/download_decrypted/<run_id>
-- Decrypted file is stored temporarily under tempfile.gettempdir()/cryptoaudit_downloads with 24-hour retention, consistent with encryption download retention.
-- beforeunload JavaScript warning added, shown if user navigates away before clicking download.
-- Applied to both CryptoAudit artifact mode and External/Manual Parameters mode.
-
-### Recent verification evidence (targeted)
-
-- Executed targeted web tests:
-
-```powershell
-python tests/test_web_app.py
-```
-
-- Executed a focused avalanche-message check:
-
-```powershell
-python -c "import main; cfg=main.AppConfig(); v=main.run_audit(main.ALGO_AES_GCM,cfg,20.0); print(v.findings[-1])"
-```
-
-- Note: a full `tests/test_main.py` run in this session encountered an existing long-running interface-launch path unrelated to these milestone updates.
