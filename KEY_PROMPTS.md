@@ -85,7 +85,7 @@ The application is being developed for a security consultancy context as part of
 
 > The organisation is a leading consultancy in the security domain, specialising in AI co-production of artefacts for security-related services or applications. You may use AI co-production, agentic AI, or vibe computing to create a security-related digital artefact.
 
-A billing and quota system has been considered for future development but must not be implemented at this stage. Focus on delivering a clean, secure, functional interface that is appropriate for professional use.
+Focus on delivering a clean, secure, functional interface that is appropriate for professional use.
 
 ---
 
