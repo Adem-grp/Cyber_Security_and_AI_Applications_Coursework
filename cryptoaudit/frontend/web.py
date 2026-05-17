@@ -1031,7 +1031,7 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             flash("Download expired. Please run encryption again.", "error")
             return redirect(url_for("encrypt_page"))
         zip_bytes = zip_path.read_bytes()
-        zip_path.unlink(missing_ok=True)
+        # zip_path.unlink(missing_ok=True)
         return send_file(
             io.BytesIO(zip_bytes),
             mimetype="application/zip",
@@ -1047,7 +1047,7 @@ def create_app(test_config: Optional[dict[str, Any]] = None) -> Flask:
             flash("Download expired or already downloaded. Please run decryption again.", "error")
             return redirect(url_for("decrypt_page"))
         decrypted_bytes = file_path.read_bytes()
-        file_path.unlink(missing_ok=True)
+        # file_path.unlink(missing_ok=True)
         output_filename = file_path.name.split("_decrypted_", 1)[-1]
         results = session.get("decrypt_results")
         if isinstance(results, dict) and run_id in results:
