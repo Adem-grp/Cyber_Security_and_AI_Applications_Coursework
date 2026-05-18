@@ -393,7 +393,7 @@ DECRYPT_BODY = """
 
   <label>Output filename (required)</label>
   <input type="text" name="output_file_name" placeholder="e.g. document.pdf, video.mp4, notes.txt" required>
-  <p class="muted">Enter the original filename with its extension so the decrypted file downloads correctly.</p>
+  <p class="muted">Enter the original filename with its extension so the decrypted file downloads correctly. If you encrypted raw text, use .txt as the extension (e.g. message.txt).</p>
 
   <details>
     <summary><strong>Advanced Settings (optional)</strong></summary>
